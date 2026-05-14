@@ -506,6 +506,18 @@ body{
 .trust-block-quote{font-size:15px;line-height:1.65;color:var(--text-white);font-style:italic;margin-bottom:10px}
 .trust-block-attr{font-size:13px;color:var(--text-muted);font-weight:500}
 .trust-block-attr strong{color:var(--text-body);font-weight:600;font-style:normal}
+.unlocked-ribbon{
+  margin:18px 0;
+  padding:14px 18px;
+  background:rgba(0,230,118,0.08);
+  border:1px solid rgba(0,230,118,0.32);
+  border-left:3px solid var(--green);
+  border-radius:10px;
+  font-size:14px;
+  line-height:1.55;
+  color:var(--text-body);
+}
+.unlocked-ribbon strong{color:var(--text-white)}
 .label{font-family:var(--font-mono);font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:8px;margin-bottom:14px}
 .label-row{text-align:center;margin-bottom:6px}
 .label-row .label{justify-content:center}
@@ -747,10 +759,11 @@ form{display:flex;flex-direction:column;gap:16px}
       <input type="text" id="inpLoc" placeholder="Lubbock, TX" required>
     </div>
     <div class="field">
-      <label>Email — unlock the full report (optional but recommended)</label>
+      <label>Email — unlock the full report (optional)</label>
       <input type="email" id="inpEmail" placeholder="you@yourbusiness.com">
-      <div style="margin-top:6px;font-size:11.5px;color:var(--text-muted);line-height:1.55">
-        Skip it to see your overall score + 2 quick wins. Add it to unlock all 5-7 recommendations, the revenue impact estimate, and the specific fix-it steps emailed as a PDF.
+      <div style="margin-top:8px;font-size:11.5px;color:var(--text-muted);line-height:1.6">
+        <strong style="color:var(--text-body)">Skip it</strong> → see your overall score + top 2 quick wins.<br>
+        <strong style="color:var(--text-body)">Add it</strong> → see all 5-7 recommendations + revenue estimate + we'll email you a PDF copy with specific fix-it steps. No spam.
       </div>
     </div>
     <div class="fact-box" id="factBox">💡 <span id="factText">60% of websites are invisible to ChatGPT</span></div>
@@ -953,6 +966,9 @@ document.getElementById('auditForm').addEventListener('submit',async e=>{
     const data=await resp.json();
     if(data.error)throw new Error(data.error);
     clearInterval(factInterval);
+    // Stash whether email was supplied on the form so showResults can decide
+    // whether to render full recs immediately or keep the lock-and-gate flow.
+    data._emailProvided = !!email;
     showResults(data,url);
   }catch(err){
     clearInterval(factInterval);
@@ -1070,14 +1086,41 @@ function showResults(d,url){
   if(good.length===0)good.push("✅ Website is online and accessible");
   document.getElementById('goodList').innerHTML=good.map(g=>'<div class="item item-good">'+g+'</div>').join('');
 
-  // Quick wins (gate recommendations)
+  // Quick wins — gate behavior depends on whether email was supplied on the form.
+  // Email provided  → render ALL recommendations, hide the post-results email gate,
+  //                   show a success ribbon confirming the PDF is on its way.
+  // Email skipped   → render 2 teasers + lock indicator, keep the email gate visible.
   window.fullQuickWins = d.quick_wins || [];
-  const teaserWins = window.fullQuickWins.slice(0, 2);
-  let badHTML = teaserWins.map(w=>'<div class="item item-bad">→ '+w+'</div>').join('');
-  if (window.fullQuickWins.length > 2) {
-    badHTML += '<div class="item item-bad" style="opacity:0.5;font-style:italic">🔒 '+(window.fullQuickWins.length - 2)+' more recommendations below — enter your email to unlock</div>';
+  const badList = document.getElementById('badList');
+  const emailGate = document.getElementById('emailGate');
+  const goodSection = document.getElementById('goodSection');
+
+  if (d._emailProvided) {
+    // Full unlock
+    badList.innerHTML = window.fullQuickWins.map(function(w){
+      return '<div class="item item-bad">→ ' + w + '</div>';
+    }).join('');
+    if (emailGate) emailGate.style.display = 'none';
+
+    // Inject a "✓ Full report unlocked" ribbon at the top of the recommendations
+    // section so the user feels the value-exchange land.
+    if (goodSection && !document.getElementById('unlockedRibbon')) {
+      var ribbon = document.createElement('div');
+      ribbon.id = 'unlockedRibbon';
+      ribbon.className = 'unlocked-ribbon';
+      ribbon.innerHTML = '<strong>✓ Full report unlocked.</strong> We\'ve also emailed a PDF copy with the specific fix-it steps to <strong>' + (document.getElementById('inpEmail').value.trim() || 'your inbox') + '</strong>.';
+      goodSection.parentNode.insertBefore(ribbon, goodSection);
+    }
+  } else {
+    // Teaser + lock + post-results gate
+    var teaserWins = window.fullQuickWins.slice(0, 2);
+    var badHTML = teaserWins.map(function(w){ return '<div class="item item-bad">→ ' + w + '</div>'; }).join('');
+    if (window.fullQuickWins.length > 2) {
+      badHTML += '<div class="item item-bad" style="opacity:0.55;font-style:italic">🔒 ' + (window.fullQuickWins.length - 2) + ' more recommendations hidden — enter your email below to unlock.</div>';
+    }
+    badList.innerHTML = badHTML;
+    if (emailGate) emailGate.style.display = '';
   }
-  document.getElementById('badList').innerHTML = badHTML;
 
   // Proof
   const proofItems=[];
