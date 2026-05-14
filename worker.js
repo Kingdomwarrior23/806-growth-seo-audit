@@ -1108,7 +1108,7 @@ function showResults(d,url){
       var ribbon = document.createElement('div');
       ribbon.id = 'unlockedRibbon';
       ribbon.className = 'unlocked-ribbon';
-      ribbon.innerHTML = '<strong>✓ Full report unlocked.</strong> We\'ve also emailed a PDF copy with the specific fix-it steps to <strong>' + (document.getElementById('inpEmail').value.trim() || 'your inbox') + '</strong>.';
+      ribbon.innerHTML = "<strong>✓ Full report unlocked.</strong> We've also emailed a PDF copy with the specific fix-it steps to <strong>" + (document.getElementById('inpEmail').value.trim() || 'your inbox') + "</strong>.";
       goodSection.parentNode.insertBefore(ribbon, goodSection);
     }
   } else {
