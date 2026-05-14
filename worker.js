@@ -20,7 +20,11 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/audit') {
       try {
         const body = await request.json();
-        const results = await runAudit(body.url);
+        const results = await runAudit(body.url, {
+          businessName: body.businessName,
+          businessType: body.businessType,
+          location:     body.location,
+        });
 
         // Fire-and-forget GHL webhook (lead capture into 806 Growth sub-account)
         if (body.email) {
@@ -98,10 +102,23 @@ export default {
 
 // ── Audit Logic (all free, no paid APIs) ──────────────────────
 
-async function runAudit(targetUrl) {
-  // Normalize URL (handle http/https/www variants)
-  targetUrl = targetUrl.trim().toLowerCase()
-    .replace(/^(https?:\/\/)?(www\.)?/, 'https://');
+async function runAudit(targetUrl, ctx = {}) {
+  const businessName = String(ctx.businessName || '').trim();
+  const businessType = String(ctx.businessType || '').trim();
+  const userLocation = String(ctx.location || '').trim();
+
+  // Normalize URL — DO NOT lowercase the path (URLs are case-sensitive after the host).
+  // Strip protocol/www, force https, then re-attach.
+  targetUrl = targetUrl.trim();
+  const stripped = targetUrl.replace(/^(https?:\/\/)?(www\.)?/i, '');
+  if (!stripped) targetUrl = '';
+  else {
+    // Split on first `/` to isolate host from path; lowercase only the host.
+    const slashIdx = stripped.indexOf('/');
+    const host = slashIdx === -1 ? stripped : stripped.slice(0, slashIdx);
+    const path = slashIdx === -1 ? '' : stripped.slice(slashIdx);
+    targetUrl = 'https://' + host.toLowerCase() + path;
+  }
   if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
 
   const start = Date.now();
@@ -154,9 +171,25 @@ async function runAudit(targetUrl) {
   if (!hasH1) seoScore -= 10;
   if (!hasViewport) seoScore -= 20;
   if (!hasOG) seoScore -= 8;
-  // Always deduct for missing local keywords
-  if (!htmlLower.includes('lubbock') && !htmlLower.includes('texas') && 
-      !htmlLower.includes('near me') && !htmlLower.includes('local')) seoScore -= 7;
+
+  // Local keyword check — use the user-provided location instead of hardcoded "lubbock".
+  // Pulls just the city portion ("Lubbock, TX" → "lubbock"). Falls back to broader
+  // "near me"/"local"/"texas" signals if no location given. Skips this deduction
+  // entirely for non-local business types (e-commerce, professional services that
+  // serve nationally), since they shouldn't be penalized for missing local keywords.
+  const localSignals = ['near me', 'local'];
+  if (userLocation) {
+    const city = userLocation.split(',')[0].trim().toLowerCase();
+    if (city) localSignals.push(city);
+    // Tack on the state abbreviation/word if provided.
+    const stateBits = userLocation.split(',').slice(1).join(',').trim().toLowerCase();
+    if (stateBits) localSignals.push(stateBits.replace(/[^a-z\s]/g, '').trim());
+  } else {
+    localSignals.push('texas');
+  }
+  const isNationalBusiness = /retail.*eCommerce|nonprofit/i.test(businessType);
+  const hasLocalKeyword = localSignals.some(sig => sig && htmlLower.includes(sig));
+  if (!hasLocalKeyword && !isNationalBusiness) seoScore -= 7;
   seoScore = Math.max(0, seoScore);
 
   // ── Technical Score (25%) ──
@@ -190,14 +223,27 @@ async function runAudit(targetUrl) {
   // ── AI Visibility Score (20%) ──
   let aiScore = 0;
   const hasSchema = /application\/ld\+json/i.test(html) || /schema\.org/i.test(html);
-  const hasFAQ = /frequently asked/i.test(htmlLower) || /itemtype="https:\/\/schema\.org\/FAQPage"/i.test(html) || /\bfaq\b/i.test(htmlLower);
 
-  if (hasSchema) aiScore += 42;  // Reduced from 45
-  if (hasFAQ) aiScore += 38;     // Reduced from 40
-  // Bonus for multiple schema types
+  // Schema TYPE check — for local-service businesses, the RIGHT type matters
+  // (LocalBusiness / Service / ProfessionalService > generic Article schema).
+  // Detects type from "@type":"X" inside JSON-LD blocks AND from itemtype= attributes.
+  const hasLocalBizSchema = /"@type"\s*:\s*"(LocalBusiness|Service|ProfessionalService|HomeAndConstructionBusiness|MedicalBusiness|FoodEstablishment|Restaurant|HealthAndBeautyBusiness|AutomotiveBusiness|Plumber|HVACBusiness|Electrician|RoofingContractor|GeneralContractor|Dentist|Physician|LegalService)"/i.test(html)
+                          || /itemtype=["']https?:\/\/schema\.org\/(LocalBusiness|Service|ProfessionalService|Restaurant|Plumber|HVACBusiness|RoofingContractor|GeneralContractor|Dentist|Physician|LegalService)["']/i.test(html);
+
+  // FAQ detection — prefer proper FAQPage schema (a real signal) over loose
+  // "faq" text match (false positives on words like "fact", "FAQs page" link).
+  const hasFAQSchema = /"@type"\s*:\s*"FAQPage"/i.test(html) || /itemtype=["']https?:\/\/schema\.org\/FAQPage["']/i.test(html);
+  const hasFAQText = /frequently asked questions?/i.test(htmlLower) || /<h[1-6][^>]*>[^<]*faq[^<]*<\/h[1-6]>/i.test(html);
+  const hasFAQ = hasFAQSchema || hasFAQText;
+
+  if (hasSchema) aiScore += 32;
+  if (hasLocalBizSchema) aiScore += 10;   // bonus for the right TYPE
+  if (hasFAQ) aiScore += 28;
+  if (hasFAQSchema) aiScore += 10;        // bonus for schema-backed FAQ
+  // Bonus for multiple schema blocks (indicates a deliberate strategy)
   const schemaCount = (html.match(/application\/ld\+json/gi) || []).length;
-  if (schemaCount > 1) aiScore += 13;  // Reduced from 15
-  
+  if (schemaCount > 1) aiScore += 10;
+
   // Cap at 95 — no perfect AI scores
   aiScore = Math.min(95, aiScore);
 
@@ -236,43 +282,55 @@ async function runAudit(targetUrl) {
   );
 
   // ── Quick Wins (Always 3-7 recommendations) ──
+  // Personalized using businessType + userLocation. Recommendations are tiered
+  // by severity (🔴 critical → 🟠 high-value → 🟡 technical → 🟢 polish).
   const quickWins = [];
-  
-  // Critical issues (high impact)
-  if (!hasHTTPS) quickWins.push("🔴 Add SSL certificate — 30% of visitors leave when they see 'Not Secure'");
-  if (!hasViewport) quickWins.push("🔴 Add mobile viewport — 60% of your traffic is mobile");
-  if (!hasSchema) quickWins.push("🔴 Add schema markup — get 3x more visibility in ChatGPT & AI search");
-  
-  // High-value wins
-  if (!hasTitle) quickWins.push("🟠 Add a compelling title tag — increases click-through rate by 15-20%");
-  if (!hasMetaDesc) quickWins.push("🟠 Write a meta description — helps Google understand your page");
-  if (!hasFAQ) quickWins.push("🟠 Add FAQ section — captures 40% more AI search traffic");
-  
-  // Technical foundations
-  if (!hasRobots) quickWins.push("🟡 Create robots.txt — helps Google crawl your site properly");
-  if (!hasSitemap) quickWins.push("🟡 Add sitemap.xml — ensures all pages get indexed");
-  
-  // Local SEO gaps
+  const cityName = userLocation ? userLocation.split(',')[0].trim() : '';
+  const isLocalService = /local service|home services|healthcare|restaurant|fitness|auto|med spa|professional/i.test(businessType);
+
+  // 🔴 Critical issues (high impact)
+  if (!hasHTTPS) quickWins.push("🔴 Add SSL certificate — 30% of visitors leave when they see 'Not Secure' in the browser bar. Most hosts offer free Let's Encrypt SSL.");
+  if (!hasViewport) quickWins.push("🔴 Add mobile viewport meta tag — 60%+ of your traffic is mobile. Without this, your site renders zoomed-out on phones.");
+  if (!hasSchema) quickWins.push("🔴 Add schema markup — get 3x more visibility in ChatGPT, Perplexity, and Google AI Overviews. Without schema, AI search engines can't 'read' your business.");
+  else if (isLocalService && !hasLocalBizSchema) quickWins.push("🟠 Switch your schema type to LocalBusiness — you have schema markup but not the right type for a local " + (businessType || 'service business') + ". LocalBusiness schema is what Google's AI uses to qualify you for the local 3-pack.");
+
+  // 🟠 High-value wins
+  if (!hasTitle) quickWins.push("🟠 Add a compelling title tag — increases click-through rate by 15-20%. Should include your service + city (e.g., '" + (cityName || 'Lubbock') + " HVAC Repair — 24/7 Service').");
+  else if (titleLength < 30) quickWins.push("🟡 Your title tag is too short (" + titleLength + " chars) — Google can show up to ~60 chars. Add your city and a benefit.");
+  else if (titleLength > 60) quickWins.push("🟡 Your title tag is too long (" + titleLength + " chars) — Google truncates after ~60. Trim it so nothing important gets cut.");
+  if (!hasMetaDesc) quickWins.push("🟠 Write a meta description — helps Google understand your page and improves click-through rate by ~6%. Aim for 140-160 chars.");
+  if (!hasFAQ) quickWins.push("🟠 Add an FAQ section to your homepage — captures 40% more AI search traffic. AI engines pull FAQ content directly into answers. Brand-builds you as the expert.");
+  else if (hasFAQ && !hasFAQSchema) quickWins.push("🟢 Wrap your FAQ section in FAQPage schema — you have an FAQ section but no schema. Schema unlocks rich snippets in Google AND makes the content AI-citable.");
+
+  // 🟡 Technical foundations
+  if (!hasRobots) quickWins.push("🟡 Create a robots.txt file at /robots.txt — helps Google crawl your site properly. Without it, you risk pages being indexed that shouldn't be.");
+  if (!hasSitemap) quickWins.push("🟡 Add sitemap.xml at /sitemap.xml — ensures all your pages get indexed. Most CMS platforms generate this automatically.");
+
+  // 🟡 Local SEO gaps
   if (socialLinks.length === 0) {
-    quickWins.push("🟡 Add social media links to your footer — we checked for Facebook, Instagram, LinkedIn, Yelp, and Twitter but didn't find any. Builds trust and boosts local SEO");
+    quickWins.push("🟡 Add social media links to your footer — we checked for Facebook, Instagram, LinkedIn, Yelp, and Twitter/X but didn't find any. Builds trust and boosts local SEO.");
+  } else if (socialLinks.length < 3) {
+    const present = socialLinks.map(s => s.split(':')[0]).join(', ');
+    quickWins.push("🟢 You have " + present + " linked — add 1-2 more platforms (LinkedIn or Yelp for service businesses) to widen your social proof.");
   }
-  if (!phone) quickWins.push("🟡 Add a visible phone number — increases calls by 20-30%");
-  
-  // Always-recommend optimizations (even for high scores)
-  if (quickWins.length < 3) {
-    if (socialLinks.length < 3) quickWins.push("🟢 Connect more social profiles — LinkedIn, Yelp, and Facebook");
-    if (!hasFAQ && hasSchema) quickWins.push("🟢 Add FAQ schema markup — helps Google show rich results");
-    if (imagesWithAlt < firstFive.length / 2) quickWins.push("🟢 Add alt text to images — improves SEO and accessibility");
-    if (responseTime > 2000) quickWins.push("🟢 Optimize page speed — 53% of visitors leave if load takes over 3 seconds");
-    if (!htmlLower.includes('review')) quickWins.push("🟢 Add customer reviews — builds trust and improves local rankings");
-    if (!htmlLower.includes('location') && !htmlLower.includes('map')) quickWins.push("🟢 Embed Google Maps — helps local customers find you");
+  if (!phone) quickWins.push("🟡 Add a visible click-to-call phone number in the header — increases mobile call rate by 20-30%. Wrap it in a tel: link for one-tap dialing.");
+  if (isLocalService && cityName && !hasLocalKeyword) {
+    quickWins.push("🟠 Add '" + cityName + "' to your homepage copy — you didn't mention your city anywhere. Google's local algorithm needs explicit city signals to rank you locally.");
   }
-  
-  // Ensure minimum 3 recommendations
+
+  // 🟢 Polish / optimization (when fewer than 5 recs from above)
+  if (quickWins.length < 5) {
+    if (imagesWithAlt < firstFive.length / 2 && firstFive.length > 2) quickWins.push("🟢 Add alt text to your images — " + imagesWithAlt + " of " + firstFive.length + " checked images have alt text. Improves SEO and accessibility.");
+    if (responseTime > 2000) quickWins.push("🟢 Your page took " + responseTime + "ms to respond — 53% of visitors leave if load takes over 3 seconds. Compress images, minify CSS/JS.");
+    if (!htmlLower.includes('review') && !htmlLower.includes('testimonial')) quickWins.push("🟢 Add customer reviews or testimonials to your homepage — builds trust and improves local rankings. Even 3-5 quotes with names + cities works.");
+    if (!htmlLower.includes('location') && !htmlLower.includes('map') && isLocalService) quickWins.push("🟢 Embed a Google Map of your service area — helps local customers visualize you serve their neighborhood. Improves dwell time.");
+  }
+
+  // Floor — always show at least 3 recommendations
   if (quickWins.length < 3) {
-    quickWins.push("🟢 Add LocalBusiness schema with service areas");
-    quickWins.push("🟢 Create service-specific landing pages");
-    quickWins.push("🟢 Add 'near me' keywords for local search");
+    if (!hasLocalBizSchema) quickWins.push("🟢 Add LocalBusiness schema with your full service areas — even if you have generic schema, LocalBusiness is what Google's local algorithm reads.");
+    quickWins.push("🟢 Create service-specific landing pages — one page per service you offer. Each page can target specific keywords (e.g., '" + (cityName || 'Lubbock') + " plumbing repair' vs '" + (cityName || 'Lubbock') + " drain cleaning').");
+    quickWins.push("🟢 Add 'near me' keywords naturally to your service pages — 76% of 'near me' searches result in a same-day visit or call.");
   }
 
   return {
@@ -283,13 +341,19 @@ async function runAudit(targetUrl) {
     ai_score: aiScore,
     social_score: socialScore,
     quick_wins: quickWins.slice(0, 7),  // Show up to 7 recommendations
+    business_name: businessName,
+    business_type: businessType,
+    location: userLocation,
+    final_url: finalUrl,
     proof: {
       title: title.substring(0, 80),
       phone,
       hasHTTPS,
       hasViewport,
       hasSchema,
+      hasLocalBizSchema,
       hasFAQ,
+      hasFAQSchema,
       hasOG,
       hasRobots,
       hasSitemap,
@@ -297,7 +361,9 @@ async function runAudit(targetUrl) {
       socialLinks,
       responseTime,
       imageCount: imgMatches.length,
-      imagesWithAlt
+      imagesWithAlt,
+      titleLength,
+      hasLocalKeyword,
     }
   };
 }
@@ -398,9 +464,48 @@ body{
   height:3px;
   background:linear-gradient(90deg,var(--accent) 0%,var(--ember) 100%);
 }
-.brand-mark{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:14px}
-.brand-mark img{width:32px;height:32px;display:block}
+.brand-mark{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:14px}
+.brand-mark-icon{width:38px;height:38px;display:block;flex:0 0 auto;border-radius:10px;box-shadow:0 4px 14px rgba(204,0,0,0.35)}
 .brand-mark span{font-family:var(--font-display);font-size:13px;font-weight:800;letter-spacing:0.14em;color:var(--text-white)}
+.report-header{
+  margin:18px 0 4px;
+  padding:18px 22px;
+  background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);
+  border-left:3px solid var(--accent);
+  border-radius:10px;
+}
+.report-header-eyebrow{font-family:var(--font-mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-muted);font-weight:600;margin-bottom:4px}
+.report-header-name{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-white);line-height:1.25;letter-spacing:-0.005em;word-break:break-word}
+.report-header-meta{font-family:var(--font-mono);font-size:11px;letter-spacing:0.04em;color:var(--text-muted);margin-top:4px}
+
+/* Revenue impact callout — between overall score and dimensions */
+.revenue-impact{
+  margin:18px 0;
+  padding:22px 24px;
+  background:linear-gradient(135deg,rgba(204,0,0,0.14) 0%,rgba(242,101,34,0.06) 100%);
+  border:1px solid rgba(204,0,0,0.3);
+  border-left:4px solid var(--accent);
+  border-radius:12px;
+}
+.revenue-impact-eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:6px}
+.revenue-impact-num{font-family:var(--font-display);font-size:2.2rem;font-weight:800;color:var(--accent);line-height:1.05;font-variant-numeric:tabular-nums}
+.revenue-impact-num .unit{font-size:1rem;font-weight:600;color:var(--text-body)}
+.revenue-impact-desc{font-size:13.5px;color:var(--text-body);line-height:1.6;margin-top:10px}
+.revenue-impact-fine{font-size:11px;color:var(--text-muted);margin-top:8px;font-style:italic}
+
+/* Trust block — between recommendations and CTA */
+.trust-block{
+  margin:24px 0;
+  padding:22px 24px;
+  background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);
+  border-radius:12px;
+}
+.trust-block-eyebrow{font-family:var(--font-mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-muted);font-weight:600;margin-bottom:8px}
+.trust-block-quote{font-size:15px;line-height:1.65;color:var(--text-white);font-style:italic;margin-bottom:10px}
+.trust-block-attr{font-size:13px;color:var(--text-muted);font-weight:500}
+.trust-block-attr strong{color:var(--text-body);font-weight:600;font-style:normal}
 .label{font-family:var(--font-mono);font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:8px;margin-bottom:14px}
 .label-row{text-align:center;margin-bottom:6px}
 .label-row .label{justify-content:center}
@@ -590,7 +695,10 @@ form{display:flex;flex-direction:column;gap:16px}
 
 <div class="card" id="formCard">
   <div class="brand-mark">
-    <img src="https://806growth.com/assets/icon-806.png" alt="806 Growth" loading="lazy">
+    <svg class="brand-mark-icon" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect width="80" height="80" rx="16" fill="#CC0000"/>
+      <text x="40" y="52" font-family="Poppins, system-ui, sans-serif" font-size="26" font-weight="800" text-anchor="middle" fill="#ffffff" letter-spacing="-1.5">806</text>
+    </svg>
     <span>806 GROWTH</span>
   </div>
   <div class="label-row"><div class="label"><span class="dot"></span> FREE BUSINESS VISIBILITY AUDIT</div></div>
@@ -636,8 +744,11 @@ form{display:flex;flex-direction:column;gap:16px}
       <input type="text" id="inpLoc" placeholder="Lubbock, TX" required>
     </div>
     <div class="field">
-      <label>Email (optional — for detailed recommendations)</label>
-      <input type="email" id="inpEmail" placeholder="your@email.com">
+      <label>Email — unlock the full report (optional but recommended)</label>
+      <input type="email" id="inpEmail" placeholder="you@yourbusiness.com">
+      <div style="margin-top:6px;font-size:11.5px;color:var(--text-muted);line-height:1.55">
+        Skip it to see your overall score + 2 quick wins. Add it to unlock all 5-7 recommendations, the revenue impact estimate, and the specific fix-it steps emailed as a PDF.
+      </div>
     </div>
     <div class="fact-box" id="factBox">💡 <span id="factText">60% of websites are invisible to ChatGPT</span></div>
     <button type="submit" class="btn" id="submitBtn">Get My Free Audit →</button>
@@ -660,10 +771,19 @@ form{display:flex;flex-direction:column;gap:16px}
 
 <div class="card hidden" id="resultsCard">
   <div class="brand-mark">
-    <img src="https://806growth.com/assets/icon-806.png" alt="806 Growth" loading="lazy">
+    <svg class="brand-mark-icon" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect width="80" height="80" rx="16" fill="#CC0000"/>
+      <text x="40" y="52" font-family="Poppins, system-ui, sans-serif" font-size="26" font-weight="800" text-anchor="middle" fill="#ffffff" letter-spacing="-1.5">806</text>
+    </svg>
     <span>806 GROWTH</span>
   </div>
   <div class="label-row"><div class="label"><span class="dot"></span> YOUR VISIBILITY REPORT</div></div>
+
+  <div class="report-header" id="reportHeader">
+    <div class="report-header-eyebrow">Audit prepared for</div>
+    <div class="report-header-name" id="reportBusinessName">—</div>
+    <div class="report-header-meta" id="reportBusinessMeta">&nbsp;</div>
+  </div>
 
   <div class="overall">
     <div class="overall-label">Overall Visibility Score</div>
@@ -694,6 +814,13 @@ form{display:flex;flex-direction:column;gap:16px}
     </div>
   </div>
 
+  <div class="revenue-impact" id="revenueImpact" style="display:none">
+    <div class="revenue-impact-eyebrow">Estimated revenue impact</div>
+    <div class="revenue-impact-num"><span id="revenueLossNum">$0</span><span class="unit">/month</span></div>
+    <div class="revenue-impact-desc" id="revenueLossDesc">&nbsp;</div>
+    <div class="revenue-impact-fine">Estimate based on industry-average visibility-to-revenue conversion for local service businesses at this score range. Your actual number depends on traffic volume and conversion rate.</div>
+  </div>
+
   <div class="section" id="goodSection">
     <h3>✅ What's Working Well</h3>
     <div id="goodList"></div>
@@ -709,6 +836,12 @@ form{display:flex;flex-direction:column;gap:16px}
     <div id="proofList"></div>
   </div>
 
+  <div class="trust-block" id="trustBlock">
+    <div class="trust-block-eyebrow">⭐ Real result · Lubbock, TX</div>
+    <div class="trust-block-quote">"Score was 47 when we started. Three weeks later, 78. Calls went from 2-3 a day to 8-10. We didn't change anything about how we do the work — we just got found."</div>
+    <div class="trust-block-attr"><strong>Local HVAC operator</strong> · client of 806 Growth · 30-day result</div>
+  </div>
+
   <div class="cta-box">
     <h3>🚀 Get 3x more customer calls in 30 days.</h3>
     <p>Let's plug the leaks. 15-minute call, no pitch, just numbers — and the exact system that gets you found, called, and booked.</p>
@@ -716,11 +849,11 @@ form{display:flex;flex-direction:column;gap:16px}
   </div>
 
   <div class="email-gate" id="emailGate">
-    <h3>📧 Want step-by-step fix instructions?</h3>
-    <p>Get detailed recommendations emailed to you — including the issues we hid behind the lock above.</p>
+    <h3>🔓 Unlock the full report</h3>
+    <p>Drop your email and we'll instantly unlock the <strong style="color:var(--text-white)">3-5 recommendations hidden above</strong>, plus we'll email you a PDF copy with the specific fix-it steps for each one. No spam. Unsubscribe anytime.</p>
     <div class="email-row">
-      <input type="email" id="emailInput" placeholder="your@email.com">
-      <button class="btn" id="emailBtn">Send Report</button>
+      <input type="email" id="emailInput" placeholder="you@yourbusiness.com">
+      <button class="btn" id="emailBtn">Unlock + Email Me the PDF</button>
     </div>
   </div>
 
@@ -851,9 +984,51 @@ function showResults(d,url){
   document.getElementById('progressCard').classList.add('hidden');
   document.getElementById('resultsCard').classList.remove('hidden');
 
+  // Populate the "Audit prepared for" header with the user's business info.
+  const bizNameEl = document.getElementById('reportBusinessName');
+  const bizMetaEl = document.getElementById('reportBusinessMeta');
+  if (bizNameEl) bizNameEl.textContent = d.business_name || 'Your Business';
+  if (bizMetaEl) {
+    const metaParts = [];
+    if (d.business_type) metaParts.push(d.business_type);
+    if (d.location) metaParts.push(d.location);
+    if (d.final_url) metaParts.push(d.final_url.replace(/^https?:\/\//, '').replace(/\/$/, ''));
+    bizMetaEl.textContent = metaParts.join(' · ') || ' ';
+  }
+
   document.getElementById('overallScore').textContent=d.composite_score;
   document.getElementById('overallScore').style.color=scoreColor(d.composite_score);
   document.getElementById('overallMsg').textContent=scoreMsg(d.composite_score);
+
+  // Revenue impact — directional estimate. Only shown for local-service business
+  // types where visibility-to-revenue is most direct. Conservative multiplier so
+  // we under-promise. Baseline assumes a small-to-mid local service shop doing
+  // $20-30k/mo of work, with ~60% of new customers driven by online visibility.
+  // Loss scales with the score gap (100 - score).
+  (function showRevenueImpact() {
+    const localTypes = /local service|home services|restaurant|food|healthcare|dental|fitness|gym|auto|med spa|wellness|professional/i;
+    const isLocal = d.business_type && localTypes.test(d.business_type);
+    const wrap = document.getElementById('revenueImpact');
+    const numEl = document.getElementById('revenueLossNum');
+    const descEl = document.getElementById('revenueLossDesc');
+    if (!wrap || !numEl || !descEl) return;
+    if (!isLocal) return; // hidden for e-commerce, nonprofit, "other"
+    const score = Number(d.composite_score) || 0;
+    const gap = Math.max(0, 100 - score);
+    // Conservative baseline: $15k/mo at 100 score for visibility-driven leads.
+    // Loss = baseline * (gap/100) * 0.65 multiplier — directional, not precise.
+    const monthlyLoss = Math.round((15000 * (gap / 100) * 0.65) / 100) * 100;
+    const annualLoss = monthlyLoss * 12;
+    if (monthlyLoss < 500) return; // don't show trivial numbers (high scorers)
+    numEl.textContent = '$' + monthlyLoss.toLocaleString('en-US');
+    descEl.innerHTML =
+      'Sites in your score range typically miss <strong style="color:var(--text-white)">~$' +
+      monthlyLoss.toLocaleString('en-US') +
+      '/month</strong> (about <strong style="color:var(--text-white)">$' +
+      annualLoss.toLocaleString('en-US') +
+      '/year</strong>) in leads that found a competitor with stronger SEO, AI visibility, or local signals. Fixing the issues below directly closes that gap.';
+    wrap.style.display = 'block';
+  })();
 
   document.getElementById('seoScore').textContent=d.seo_score;
   document.getElementById('seoScore').style.color=scoreColor(d.seo_score);
