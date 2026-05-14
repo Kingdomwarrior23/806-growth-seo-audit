@@ -229,7 +229,7 @@ function buildExecutiveSummary(businessName, score, gradeLabel, proof, businessT
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     // CORS headers
@@ -329,7 +329,13 @@ export default {
           const standardTags = ['806 Growth', 'Web Lead', 'SEO Audit'];
           const legacyTags = ['audit-lead', 'source-visibility-tool', typeTag, scoreLevel, 'email-provided'];
 
-          fetch('https://services.leadconnectorhq.com/hooks/jDoRsNEPg0qtXUYNouR3/webhook-trigger/1W0WEZzu3MzXX1PpAmXw', {
+          // CRITICAL: wrap in ctx.waitUntil so Cloudflare keeps the runtime alive
+          // until the POST completes. Without this, the in-flight fetch gets
+          // cancelled the instant we return the response to the browser — which
+          // is why GHL was seeing no recent webhook hits despite real audit
+          // submissions. See https://developers.cloudflare.com/workers/runtime-apis/handlers/fetch/#parameters
+          ctx.waitUntil(
+            fetch('https://services.leadconnectorhq.com/hooks/jDoRsNEPg0qtXUYNouR3/webhook-trigger/1W0WEZzu3MzXX1PpAmXw', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -372,7 +378,8 @@ export default {
               page_url:               'https://audit.806growth.com/',
               timestamp:              new Date().toISOString(),
             })
-          }).catch(() => {});
+            }).catch(() => {})
+          );
         }
 
         return new Response(JSON.stringify(results), {

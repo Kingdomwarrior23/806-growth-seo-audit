@@ -2,6 +2,12 @@ name = "806-growth-audit"
 main = "worker.js"
 compatibility_date = "2024-09-23"
 
+# Enable runtime logs (console.log / errors / request metadata) accessible via
+# Cloudflare dashboard → Workers → 806-growth-audit → Logs. Required for
+# debugging fire-and-forget webhook issues like the ctx.waitUntil() bug.
+[observability]
+enabled = true
+
 # Custom-domain binding for audit.806growth.com.
 # Uncomment after the CNAME is added at the Cloudflare DNS for 806growth.com.
 # Then redeploy with: wrangler deploy
