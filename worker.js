@@ -1,6 +1,233 @@
 // 806 Growth — Free Business Visibility Audit Cloudflare Worker
 // Single file: serves HTML + handles API. Zero cost at scale.
 
+// ─── Recommendation detail bank ──────────────────────────────────────────
+// Each entry is matched against a recommendation string by keyword. Keys are
+// rough categories. When the email goes out, each top-N rec is expanded with
+// what_to_do / why_it_matters / time / impact — content the in-page audit
+// doesn't show. This is what makes the email feel like a real deliverable
+// instead of a duplicate of the page.
+const RECOMMENDATION_DETAILS = {
+  ssl: {
+    match: /SSL certificate|HTTPS/i,
+    what:  'Get an SSL certificate installed and force all traffic to https://. Most hosting providers (GoDaddy, Hostinger, Cloudflare, Vercel) provide free Let\'s Encrypt SSL with one click.',
+    why:   'Browsers display "Not Secure" warnings on http sites, which drops visitor trust dramatically. ~30% of visitors leave the moment they see it. Google also penalizes non-HTTPS sites in rankings.',
+    time:  '15 minutes (if your host offers one-click SSL) or up to 1 hour (manual setup).',
+    impact:'Removes the "Not Secure" warning, recovers ~30% of bouncing visitors, and unblocks ranking factors. Foundational — fix this before anything else.',
+  },
+  viewport: {
+    match: /mobile viewport|viewport meta/i,
+    what:  'Add this exact line inside your &lt;head&gt;: &lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;.',
+    why:   '60-70% of your traffic is mobile. Without this tag, your site renders at desktop width and zooms out — text becomes unreadable, buttons un-tappable, conversion craters.',
+    time:  '2 minutes for a developer. Most modern site builders include this by default; if you\'re missing it, your site is likely on an outdated template.',
+    impact:'Fixes mobile rendering for the majority of your audience. Often single biggest fix on legacy sites.',
+  },
+  schema: {
+    match: /schema markup|LocalBusiness schema/i,
+    what:  'Add JSON-LD schema markup specifically of type "LocalBusiness" (or the more specific type for your industry — Plumber, HVACBusiness, RoofingContractor, Dentist, etc.). Include name, address, phone, hours, service area, and review aggregate if available.',
+    why:   'Schema is the structured data that AI search engines (ChatGPT, Perplexity, Google AI Overviews) use to "read" your business. Without it, you\'re invisible to ~60% of new business-search behavior. Generic schema isn\'t enough — the TYPE has to match what you actually do.',
+    time:  '30-60 minutes for a developer, or it ships automatically with our Growth plan setup.',
+    impact:'3x+ more visibility in AI-driven search. Qualifies you for Google\'s local 3-pack. Often the highest-ROI single fix for local service businesses.',
+  },
+  title: {
+    match: /title tag|compelling title/i,
+    what:  'Write a title tag in the format "[Service] in [City] — [Benefit] | [Brand]". Keep it 50-60 characters. Include your primary keyword and city name.',
+    why:   'The title tag is the bright blue clickable text in Google search results — it\'s the single most important on-page SEO element. Generic titles ("Home" or just your business name) get 30-40% lower click-through rates than keyword-rich ones.',
+    time:  '10 minutes to write, 5 minutes to publish.',
+    impact:'15-20% increase in click-through rate from search results. Direct, measurable, fast.',
+  },
+  meta_desc: {
+    match: /meta description/i,
+    what:  'Write a 140-160 character description summarizing what you do, where you do it, and why someone should click. Include your phone number or a strong call-to-action.',
+    why:   'Google uses this as the preview snippet in search results. Without one, Google auto-generates from page content — often pulling boilerplate that doesn\'t sell. A purpose-written description converts ~6% more clicks.',
+    time:  '5 minutes per page.',
+    impact:'~6% click-through lift. Modest but free and easy.',
+  },
+  faq: {
+    match: /FAQ section|FAQ schema/i,
+    what:  'Add an FAQ section to your homepage with 5-8 questions your customers actually ask (pricing, timing, service area, warranty, emergency availability). Wrap each Q+A in FAQPage schema so AI engines can extract them.',
+    why:   'AI engines like ChatGPT and Perplexity pull FAQ content directly into their answers. Sites with structured FAQs capture 40% more AI-driven traffic. Also positions you as the expert who has the answers, not the vendor who hides them.',
+    time:  '2-3 hours to write good questions + answers. 30 minutes to mark up with schema.',
+    impact:'40% more AI search traffic. Higher trust signal. Reduces inbound questions you have to answer manually.',
+  },
+  robots: {
+    match: /robots\.txt/i,
+    what:  'Create a file at yoursite.com/robots.txt that explicitly tells search engines what to crawl. Minimum content: "User-agent: *\\nAllow: /\\nSitemap: https://yoursite.com/sitemap.xml".',
+    why:   'Without robots.txt, search engines guess about what to index. Sometimes they waste their crawl budget on irrelevant URLs (admin pages, cart, search results) while skipping your service pages.',
+    time:  '10 minutes if you have FTP/CMS access.',
+    impact:'Better crawl efficiency. Mostly a foundational hygiene item — won\'t move your ranking dramatically but its absence signals an under-maintained site.',
+  },
+  sitemap: {
+    match: /sitemap\.xml/i,
+    what:  'Generate an XML sitemap at yoursite.com/sitemap.xml listing every important page on your site. Most CMS platforms (WordPress with Yoast/RankMath, Webflow, Shopify) generate this automatically — you just need to enable it.',
+    why:   'A sitemap is the GPS that tells Google exactly what pages exist on your site and how often they change. Without it, deep pages can sit unindexed for weeks.',
+    time:  '5-15 minutes depending on platform.',
+    impact:'Faster indexing of new pages. Critical when launching new service pages or seasonal landing pages.',
+  },
+  social: {
+    match: /social media|social profiles/i,
+    what:  'Add direct links to your active social profiles in your site footer. At minimum: Facebook, Instagram, and Google Business Profile. Add Yelp if you serve hospitality/restaurants and LinkedIn for B2B services.',
+    why:   'Social links in your footer are trust signals to both visitors AND search engines. They also create the citation network that boosts local SEO. Sites with 4+ verified social profiles consistently outrank those with 0-1.',
+    time:  '20-30 minutes including link verification.',
+    impact:'Trust + SEO compound benefit. Free.',
+  },
+  phone: {
+    match: /phone number|visible phone/i,
+    what:  'Put a click-to-call phone number in the top-right of your header (visible without scrolling). Use a tel: link so mobile users one-tap-dial. Repeat it in the footer.',
+    why:   'On mobile, customers expect to tap-to-call. If your number is hidden 4 scrolls down or buried as text (not a tel: link), you lose 20-30% of mobile call intent. This is the single most reversible conversion leak.',
+    time:  '15 minutes for a developer to wire up.',
+    impact:'20-30% more mobile calls. Often the single highest-ROI change for service businesses.',
+  },
+  reviews: {
+    match: /customer reviews|testimonials/i,
+    what:  'Display 3-5 real customer testimonials on your homepage with names, cities, and (ideally) photos. Pull them from Google reviews. Make sure they\'re specific — "Mike fixed our water heater in 2 hours on a Saturday" beats "Great service".',
+    why:   'Specific testimonials with attribution build trust 4x more than generic ones. Sites without visible testimonials get ~25% lower conversion rates because visitors assume the business is too new or has nothing good to show.',
+    time:  '1 hour to gather + write up + design into a section.',
+    impact:'~25% higher conversion rate from visitors who reach the homepage. Compounding — also boosts local SEO via review-related keywords.',
+  },
+  local_keywords: {
+    match: /to your homepage copy|local keyword|near me|local search/i,
+    what:  'Add explicit city/region mentions to your homepage hero, services section, and footer. "Lubbock plumber" beats "professional plumber" for local rankings. Mention nearby towns/neighborhoods you serve.',
+    why:   'Google\'s local algorithm needs explicit signals to rank you for "[service] near me" searches. If your homepage never mentions your city, you\'re not in the consideration set even if you\'re the best provider locally.',
+    time:  '15-20 minutes of copy editing.',
+    impact:'Direct lift in local pack visibility. Often the single highest-ROI copy change.',
+  },
+  speed: {
+    match: /page speed|load takes/i,
+    what:  'Compress images (use TinyPNG or Squoosh — get every image under 200KB). Defer non-critical JavaScript. Use a CDN. If on WordPress, install a caching plugin like WP Rocket or LiteSpeed.',
+    why:   'Google uses Core Web Vitals (page speed + visual stability) as a ranking factor. 53% of visitors abandon if a page takes over 3 seconds. Every 1-second improvement above 2s recovers ~10% of bouncing traffic.',
+    time:  '1-3 hours depending on site size.',
+    impact:'Lower bounce rate, higher rankings, faster conversions. Compounds with every other on-page improvement.',
+  },
+  images_alt: {
+    match: /alt text/i,
+    what:  'Add descriptive alt text to every image. For service photos, describe the work shown ("Lubbock HVAC tech installing a Carrier condenser in a residential backyard" instead of "image1.jpg").',
+    why:   'Alt text is what screen readers use for accessibility AND what Google\'s image search and AI engines use to understand visual content. Missing alt text fails both audiences.',
+    time:  '~30 minutes for a typical site (1 min per image).',
+    impact:'Image search traffic + accessibility + small SEO bump. Compounds over time as Google indexes images.',
+  },
+  service_pages: {
+    match: /service-specific landing pages|landing pages/i,
+    what:  'Create one dedicated page per service you offer. Each page should target a specific search query ("Lubbock drain cleaning" vs "Lubbock water heater repair") with its own H1, meta description, FAQ section, and call-to-action.',
+    why:   'Generic "services" pages can\'t rank for specific high-intent queries. Single-purpose landing pages do. Sites with 8-12 service pages routinely outrank competitors with one generic page.',
+    time:  '2-3 hours per page (research, write, design).',
+    impact:'Each well-built page is a permanent traffic asset. Compound over months.',
+  },
+  fallback: {
+    match: /.*/,
+    what:  'See the recommendation text on your audit results page for context. Each fix above this priority level moves you toward an 85+ score.',
+    why:   '',
+    time:  '',
+    impact:'',
+  },
+};
+
+// Industry benchmarks (rough, directional — based on aggregate audit data of
+// local service businesses in Texas/Southwest. Not scientific; useful for
+// "how do I compare?" framing in the email).
+const INDUSTRY_BENCHMARKS = {
+  'Local Service (Plumbing, HVAC, Roofing)': 60,
+  'Restaurant / Food':                        65,
+  'Healthcare / Dental':                      70,
+  'Professional (Law, RE, Accounting)':       62,
+  'Retail / eCommerce':                       72,
+  'Home Services (Cleaning, Lawn, Handyman)': 58,
+  'Med Spa / IV Therapy / Wellness':          68,
+  'Fitness / Gym / Personal Training':        65,
+  'Auto (Repair, Detailing, Sales)':          60,
+  'Nonprofit / Community':                    55,
+  'Other':                                    63,
+};
+
+function detailFor(rec) {
+  for (const key of Object.keys(RECOMMENDATION_DETAILS)) {
+    const entry = RECOMMENDATION_DETAILS[key];
+    if (entry.match && entry.match.test(rec)) return entry;
+  }
+  return RECOMMENDATION_DETAILS.fallback;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderRecommendationDetailedHtml(recs) {
+  // Builds the rich "what to do / why / time / impact" block per rec.
+  // Returns a single HTML string suitable for dropping into a GHL email merge.
+  if (!recs || !recs.length) return '';
+  return recs.slice(0, 7).map((rec, i) => {
+    const d = detailFor(rec);
+    const cleanHeadline = rec.replace(/^[🔴🟠🟡🟢]\s*/, '');
+    const priority = /^🔴/.test(rec) ? '🔴 CRITICAL' : /^🟠/.test(rec) ? '🟠 HIGH IMPACT' : /^🟡/.test(rec) ? '🟡 TECHNICAL' : '🟢 OPTIMIZATION';
+    const meta = [];
+    if (d.time) meta.push('<strong style="color:#0a0a0a">Time:</strong> ' + escapeHtml(d.time));
+    if (d.impact) meta.push('<strong style="color:#0a0a0a">Impact:</strong> ' + escapeHtml(d.impact));
+    return [
+      '<div style="margin:0 0 28px;padding:20px 22px;background:#f7f7f5;border:1px solid #ececec;border-radius:8px">',
+      '  <div style="font-family:Menlo,monospace;font-size:11px;letter-spacing:0.12em;color:#CC0000;font-weight:700;margin-bottom:6px">PRIORITY #' + (i + 1) + ' &middot; ' + priority + '</div>',
+      '  <h3 style="margin:0 0 12px;font-size:17px;font-weight:700;color:#0a0a0a;line-height:1.3">' + escapeHtml(cleanHeadline) + '</h3>',
+      d.what  ? '  <p style="margin:0 0 10px;font-size:14px;line-height:1.65"><strong style="color:#0a0a0a">What to do:</strong> ' + d.what + '</p>' : '',
+      d.why   ? '  <p style="margin:0 0 10px;font-size:14px;line-height:1.65"><strong style="color:#0a0a0a">Why it matters:</strong> ' + d.why + '</p>' : '',
+      meta.length ? '  <p style="margin:0;font-size:13px;color:#555;line-height:1.55">' + meta.join(' &nbsp;&middot;&nbsp; ') + '</p>' : '',
+      '</div>',
+    ].filter(Boolean).join('\n');
+  }).join('\n');
+}
+
+function renderProofFullHtml(proof) {
+  // Renders the FULL audit checklist (everything checked, pass/fail) — the
+  // in-page version only highlights ~10 items; this is the complete record.
+  const rows = [
+    ['HTTPS / SSL',                       proof.hasHTTPS],
+    ['Mobile viewport meta tag',          proof.hasViewport],
+    ['Title tag (' + (proof.titleLength || 0) + ' chars)', !!proof.title],
+    ['Open Graph tags (social preview)',  proof.hasOG],
+    ['Schema markup (any)',               proof.hasSchema],
+    ['LocalBusiness / industry schema',   proof.hasLocalBizSchema],
+    ['FAQ section',                       proof.hasFAQ],
+    ['FAQPage schema',                    proof.hasFAQSchema],
+    ['robots.txt',                        proof.hasRobots],
+    ['sitemap.xml',                       proof.hasSitemap],
+    ['Favicon',                           proof.hasFavicon],
+    ['Visible phone number',              !!proof.phone],
+    ['Local city/region keywords',        proof.hasLocalKeyword],
+    ['Page response time under 2s',       proof.responseTime < 2000],
+    ['Image alt text (' + (proof.imagesWithAlt || 0) + '/' + (Math.min(10, proof.imageCount || 0)) + ' checked)', (proof.imagesWithAlt || 0) >= Math.min(5, (proof.imageCount || 0) / 2)],
+    ['Social platforms linked (' + ((proof.socialLinks || []).length) + ')', (proof.socialLinks || []).length > 0],
+  ];
+  return rows.map(r => {
+    const [label, ok] = r;
+    const icon = ok ? '✅' : '❌';
+    const color = ok ? '#00aa00' : '#CC0000';
+    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #ececec;font-size:14px"><span style="color:' + color + ';margin-right:8px;font-weight:600">' + icon + '</span> ' + escapeHtml(label) + '</td></tr>';
+  }).join('\n');
+}
+
+function buildExecutiveSummary(businessName, score, gradeLabel, proof, businessType) {
+  // 2-3 sentence narrative summary at the top of the email.
+  const strengths = [];
+  if (proof.hasHTTPS) strengths.push('secure (HTTPS)');
+  if (proof.hasViewport) strengths.push('mobile-ready');
+  if (proof.hasSchema) strengths.push('has schema markup');
+  if (proof.hasFAQ) strengths.push('has an FAQ');
+  if ((proof.socialLinks || []).length >= 3) strengths.push('strong social presence');
+  const gaps = [];
+  if (!proof.hasHTTPS) gaps.push('no SSL/HTTPS');
+  if (!proof.hasViewport) gaps.push('no mobile viewport');
+  if (!proof.hasSchema) gaps.push('no schema markup');
+  if (!proof.hasFAQ) gaps.push('no FAQ section');
+  if (!proof.hasLocalKeyword) gaps.push('no local-keyword signals');
+  if (!proof.phone) gaps.push('no visible phone number');
+
+  const strengthPart = strengths.length
+    ? 'You\'re doing some things right — ' + (strengths.slice(0, 3).join(', ')) + '.'
+    : 'There aren\'t many on-page strengths to call out yet, which means the upside is wide open.';
+  const gapPart = gaps.length
+    ? 'The biggest gaps are ' + (gaps.slice(0, 3).join(', ')) + '.'
+    : 'No critical gaps detected at the on-page level — focus on competitive optimization.';
+  return businessName + ' scored ' + score + '/100 — ' + gradeLabel.toLowerCase() + '. ' + strengthPart + ' ' + gapPart + ' The detailed fixes below are ordered by impact.';
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -47,15 +274,39 @@ export default {
                            : results.composite_score >= 40 ? 'Significant Gaps'
                            : 'Critical Issues';
 
-          // Pre-format top 5 recommendations as a single HTML <ul> block so the
-          // email template can drop them in as one merge field without per-line
-          // logic. Strip the emoji prefix so the email reads professional.
-          const top5 = (results.quick_wins || []).slice(0, 5);
-          const recommendationsHtml = top5.map(rec => {
+          // Pre-format top 7 recommendations as a rich HTML block — each rec
+          // becomes a card with "what to do / why it matters / time / impact"
+          // pulled from RECOMMENDATION_DETAILS. This is the email's main
+          // value-over-page differentiator.
+          const top7 = (results.quick_wins || []).slice(0, 7);
+          const recommendationsDetailedHtml = renderRecommendationDetailedHtml(top7);
+          // Simple version retained for backward compat with the old email layout
+          const recommendationsHtml = top7.slice(0, 5).map(rec => {
             const clean = rec.replace(/^[🔴🟠🟡🟢]\s*/, '');
             return '<li style="margin-bottom:12px;line-height:1.6">' + clean + '</li>';
           }).join('');
-          const recommendationsText = top5.map((rec, i) => (i + 1) + '. ' + rec.replace(/^[🔴🟠🟡🟢]\s*/, '')).join('\n\n');
+          const recommendationsText = top7.map((rec, i) => (i + 1) + '. ' + rec.replace(/^[🔴🟠🟡🟢]\s*/, '')).join('\n\n');
+
+          // Full proof checklist — every check we ran, pass or fail.
+          const proofFullHtml = renderProofFullHtml(results.proof || {});
+
+          // Executive summary — 2-3 sentence narrative at top of email.
+          const executiveSummary = buildExecutiveSummary(
+            body.businessName || 'Your business',
+            results.composite_score,
+            gradeLabel,
+            results.proof || {},
+            body.businessType || ''
+          );
+
+          // Industry benchmark — directional context the page doesn't show.
+          const benchmarkScore = INDUSTRY_BENCHMARKS[body.businessType] || INDUSTRY_BENCHMARKS['Other'];
+          const benchmarkDelta = results.composite_score - benchmarkScore;
+          let benchmarkLabel;
+          if (benchmarkDelta >= 10)      benchmarkLabel = 'above average for ' + (body.businessType || 'your industry');
+          else if (benchmarkDelta >= -5) benchmarkLabel = 'around average for ' + (body.businessType || 'your industry');
+          else if (benchmarkDelta >= -15) benchmarkLabel = 'below average for ' + (body.businessType || 'your industry');
+          else                           benchmarkLabel = 'in the bottom quartile for ' + (body.businessType || 'your industry');
 
           // Estimated revenue loss for local-service business types (same formula
           // as the in-page revenue impact callout — kept in sync intentionally).
@@ -97,10 +348,17 @@ export default {
               technical_score:        results.technical_score,
               ai_score:               results.ai_score,
               social_score:           results.social_score,
-              top_recommendations_html: recommendationsHtml,
-              top_recommendations_text: recommendationsText,
-              estimated_monthly_loss: estimatedMonthlyLoss,
-              estimated_annual_loss:  estimatedAnnualLoss,
+              // Rich email-body content (NOT shown on the live audit page —
+              // this is what the email gives them in exchange for their email).
+              executive_summary:           executiveSummary,
+              top_recommendations_html:    recommendationsHtml,
+              top_recommendations_text:    recommendationsText,
+              recommendations_detailed_html: recommendationsDetailedHtml,
+              proof_full_html:             proofFullHtml,
+              industry_benchmark_score:    benchmarkScore,
+              industry_benchmark_label:    benchmarkLabel,
+              estimated_monthly_loss:      estimatedMonthlyLoss,
+              estimated_annual_loss:       estimatedAnnualLoss,
               // legacy keys preserved for the existing SEO Audit Email Sequence workflow
               businessName:           body.businessName,
               businessType:           body.businessType,
