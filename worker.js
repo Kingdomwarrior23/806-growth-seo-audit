@@ -704,6 +704,9 @@ form{display:flex;flex-direction:column;gap:16px}
   <div class="label-row"><div class="label"><span class="dot"></span> FREE BUSINESS VISIBILITY AUDIT</div></div>
   <h1 class="audit-title">See where you stand in 10 seconds.</h1>
   <p class="audit-sub">Real scores for SEO, technical health, AI visibility, and social presence &mdash; built for service businesses in the 806 and across West Texas.</p>
+  <p style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:10px;max-width:520px;margin-left:auto;margin-right:auto;line-height:1.5">
+    Different from our <a href="https://806growth.com/assessment.html" target="_blank" style="color:var(--accent);text-decoration:none;border-bottom:1px dashed rgba(204,0,0,0.4)">12-point Lead Audit</a> &mdash; this one scans your <strong style="color:var(--text-body)">website</strong> (can people find you?). The Lead Audit checks your <strong style="color:var(--text-body)">lead-capture system</strong> (do you convert them?).
+  </p>
   <div class="badges">
     <span class="badge">⚡ Instant results</span>
     <span class="badge">🆓 100% free</span>
@@ -992,7 +995,17 @@ function showResults(d,url){
     const metaParts = [];
     if (d.business_type) metaParts.push(d.business_type);
     if (d.location) metaParts.push(d.location);
-    if (d.final_url) metaParts.push(d.final_url.replace(/^https?:\/\//, '').replace(/\/$/, ''));
+    if (d.final_url) {
+      // Strip protocol + trailing slash WITHOUT regex literals — they're inside
+      // the HTML_PAGE template literal and \/ escapes get eaten during parsing.
+      let displayUrl = d.final_url;
+      if (displayUrl.indexOf('https://') === 0) displayUrl = displayUrl.slice(8);
+      else if (displayUrl.indexOf('http://') === 0) displayUrl = displayUrl.slice(7);
+      if (displayUrl.length && displayUrl.charAt(displayUrl.length - 1) === '/') {
+        displayUrl = displayUrl.slice(0, -1);
+      }
+      metaParts.push(displayUrl);
+    }
     bizMetaEl.textContent = metaParts.join(' · ') || ' ';
   }
 
