@@ -35,6 +35,40 @@ export default {
             .replace(/[^a-z0-9]/g, '-')
             .substring(0, 30);
 
+          // Letter grade for the email template — easier merge field than computing
+          // it inside GHL's limited expression language.
+          const grade = results.composite_score >= 90 ? 'A'
+                      : results.composite_score >= 80 ? 'B'
+                      : results.composite_score >= 70 ? 'C'
+                      : results.composite_score >= 60 ? 'D'
+                      : 'F';
+          const gradeLabel = results.composite_score >= 80 ? 'Strong'
+                           : results.composite_score >= 60 ? 'Needs Work'
+                           : results.composite_score >= 40 ? 'Significant Gaps'
+                           : 'Critical Issues';
+
+          // Pre-format top 5 recommendations as a single HTML <ul> block so the
+          // email template can drop them in as one merge field without per-line
+          // logic. Strip the emoji prefix so the email reads professional.
+          const top5 = (results.quick_wins || []).slice(0, 5);
+          const recommendationsHtml = top5.map(rec => {
+            const clean = rec.replace(/^[🔴🟠🟡🟢]\s*/, '');
+            return '<li style="margin-bottom:12px;line-height:1.6">' + clean + '</li>';
+          }).join('');
+          const recommendationsText = top5.map((rec, i) => (i + 1) + '. ' + rec.replace(/^[🔴🟠🟡🟢]\s*/, '')).join('\n\n');
+
+          // Estimated revenue loss for local-service business types (same formula
+          // as the in-page revenue impact callout — kept in sync intentionally).
+          const localTypes = /local service|home services|restaurant|food|healthcare|dental|fitness|gym|auto|med spa|wellness|professional/i;
+          const isLocal = localTypes.test(body.businessType || '');
+          let estimatedMonthlyLoss = 0;
+          let estimatedAnnualLoss = 0;
+          if (isLocal) {
+            const gap = Math.max(0, 100 - results.composite_score);
+            estimatedMonthlyLoss = Math.round((15000 * (gap / 100) * 0.65) / 100) * 100;
+            estimatedAnnualLoss = estimatedMonthlyLoss * 12;
+          }
+
           // Tag array includes BOTH the standard site pattern (806 Growth / Web Lead /
           // SEO Audit — required for Web Lead Internal Alerts + Tag-Added nurture
           // workflows to fire) AND the legacy custom tags (audit-lead /
@@ -48,31 +82,37 @@ export default {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              brand:           '806 Growth',
-              source_form:     'seo_audit',
-              first_name:      body.businessName,
-              business_name:   body.businessName,
-              industry:        body.businessType,
-              location:        body.location,
-              email:           body.email,
-              website:         body.url,
-              overall_score:   results.composite_score,
-              seo_score:       results.seo_score,
-              technical_score: results.technical_score,
-              ai_score:        results.ai_score,
-              social_score:    results.social_score,
+              brand:                  '806 Growth',
+              source_form:            'seo_audit',
+              first_name:             body.businessName,
+              business_name:          body.businessName,
+              industry:               body.businessType,
+              location:               body.location,
+              email:                  body.email,
+              website:                body.url,
+              overall_score:          results.composite_score,
+              score_grade:            grade,
+              score_label:            gradeLabel,
+              seo_score:              results.seo_score,
+              technical_score:        results.technical_score,
+              ai_score:               results.ai_score,
+              social_score:           results.social_score,
+              top_recommendations_html: recommendationsHtml,
+              top_recommendations_text: recommendationsText,
+              estimated_monthly_loss: estimatedMonthlyLoss,
+              estimated_annual_loss:  estimatedAnnualLoss,
               // legacy keys preserved for the existing SEO Audit Email Sequence workflow
-              businessName:    body.businessName,
-              businessType:    body.businessType,
-              overallScore:    results.composite_score,
-              seoScore:        results.seo_score,
-              technicalScore:  results.technical_score,
-              aiScore:         results.ai_score,
-              socialScore:     results.social_score,
-              source:          'free-audit-tool',
-              tags:            [...standardTags, ...legacyTags].join(','),
-              page_url:        'https://audit.806growth.com/',
-              timestamp:       new Date().toISOString(),
+              businessName:           body.businessName,
+              businessType:           body.businessType,
+              overallScore:           results.composite_score,
+              seoScore:               results.seo_score,
+              technicalScore:         results.technical_score,
+              aiScore:                results.ai_score,
+              socialScore:            results.social_score,
+              source:                 'free-audit-tool',
+              tags:                   [...standardTags, ...legacyTags].join(','),
+              page_url:               'https://audit.806growth.com/',
+              timestamp:              new Date().toISOString(),
             })
           }).catch(() => {});
         }
