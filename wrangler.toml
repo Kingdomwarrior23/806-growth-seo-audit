@@ -1,3 +1,11 @@
 name = "806-growth-audit"
 main = "worker.js"
 compatibility_date = "2024-09-23"
+
+# Custom-domain binding for audit.806growth.com.
+# Uncomment after the CNAME is added at the Cloudflare DNS for 806growth.com.
+# Then redeploy with: wrangler deploy
+#
+# routes = [
+#   { pattern = "audit.806growth.com/*", zone_name = "806growth.com" }
+# ]

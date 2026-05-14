@@ -22,31 +22,53 @@ export default {
         const body = await request.json();
         const results = await runAudit(body.url);
 
-        // Fire-and-forget GHL webhook
+        // Fire-and-forget GHL webhook (lead capture into 806 Growth sub-account)
         if (body.email) {
-          const scoreLevel = results.composite_score >= 75 ? 'score-high' : 
+          const scoreLevel = results.composite_score >= 75 ? 'score-high' :
                            results.composite_score >= 55 ? 'score-mid' : 'score-low';
           const typeTag = 'type-' + (body.businessType || 'other')
             .toLowerCase()
             .replace(/[^a-z0-9]/g, '-')
             .substring(0, 30);
-          
+
+          // Tag array includes BOTH the standard site pattern (806 Growth / Web Lead /
+          // SEO Audit — required for Web Lead Internal Alerts + Tag-Added nurture
+          // workflows to fire) AND the legacy custom tags (audit-lead /
+          // source-visibility-tool / type-* / score-* — required for the existing
+          // "SEO Audit Email Sequence" workflow that's already published). GHL stores
+          // tags lowercase; trigger filters match case-insensitively.
+          const standardTags = ['806 Growth', 'Web Lead', 'SEO Audit'];
+          const legacyTags = ['audit-lead', 'source-visibility-tool', typeTag, scoreLevel, 'email-provided'];
+
           fetch('https://services.leadconnectorhq.com/hooks/jDoRsNEPg0qtXUYNouR3/webhook-trigger/1W0WEZzu3MzXX1PpAmXw', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              email: body.email,
-              businessName: body.businessName,
-              businessType: body.businessType,
-              location: body.location,
-              website: body.url,
-              overallScore: results.composite_score,
-              seoScore: results.seo_score,
-              technicalScore: results.technical_score,
-              aiScore: results.ai_score,
-              socialScore: results.social_score,
-              source: 'free-audit-tool',
-              tags: ['audit-lead', 'source-visibility-tool', typeTag, scoreLevel, 'email-provided'].join(',')
+              brand:           '806 Growth',
+              source_form:     'seo_audit',
+              first_name:      body.businessName,
+              business_name:   body.businessName,
+              industry:        body.businessType,
+              location:        body.location,
+              email:           body.email,
+              website:         body.url,
+              overall_score:   results.composite_score,
+              seo_score:       results.seo_score,
+              technical_score: results.technical_score,
+              ai_score:        results.ai_score,
+              social_score:    results.social_score,
+              // legacy keys preserved for the existing SEO Audit Email Sequence workflow
+              businessName:    body.businessName,
+              businessType:    body.businessType,
+              overallScore:    results.composite_score,
+              seoScore:        results.seo_score,
+              technicalScore:  results.technical_score,
+              aiScore:         results.ai_score,
+              socialScore:     results.social_score,
+              source:          'free-audit-tool',
+              tags:            [...standardTags, ...legacyTags].join(','),
+              page_url:        'https://audit.806growth.com/',
+              timestamp:       new Date().toISOString(),
             })
           }).catch(() => {});
         }
@@ -307,85 +329,273 @@ const HTML_PAGE = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Free Business Visibility Audit — 806 Growth</title>
-<meta name="description" content="Get instant scores for SEO, technical health, AI visibility, and social presence in 10 seconds — completely free.">
+<meta name="description" content="Real scores for SEO, technical health, AI visibility, and social presence in 10 seconds. Built for Lubbock and West Texas service businesses. 100% free.">
+<link rel="canonical" href="https://audit.806growth.com/">
+<link rel="icon" type="image/svg+xml" href="https://806growth.com/favicon.svg">
+<link rel="apple-touch-icon" href="https://806growth.com/favicon.svg">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://audit.806growth.com/">
 <meta property="og:title" content="Free Business Visibility Audit — 806 Growth">
-<meta property="og:description" content="Find out how visible your business is online. Instant results, zero cost.">
+<meta property="og:description" content="Real scores for SEO, technical health, AI visibility, and social presence in 10 seconds. Built for Lubbock and West Texas service businesses.">
+<meta property="og:image" content="https://806growth.com/assets/og-image.png">
+<meta property="og:site_name" content="806 Growth">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Free Business Visibility Audit — 806 Growth">
+<meta name="twitter:description" content="Real scores in 10 seconds. 100% free. Built for West Texas service businesses.">
+<meta name="twitter:image" content="https://806growth.com/assets/og-image.png">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--red:#CC0000;--dark:#0B0B0B;--light:#f7fafc;--gray:#718096;--green:#38a169}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);min-height:100vh;padding:20px;display:flex;flex-direction:column;align-items:center}
-.card{background:#fff;border-radius:16px;box-shadow:0 25px 80px rgba(0,0,0,0.4);max-width:640px;width:100%;padding:40px 32px;position:relative;overflow:hidden}
-.card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--red),#ff6b6b,var(--red))}
-.brand{text-align:center;margin-bottom:24px}
-.brand h1{font-size:1.1rem;color:var(--red);font-weight:800;letter-spacing:-0.5px}
-.brand h2{font-size:1.6rem;color:var(--dark);margin:8px 0 4px;font-weight:800}
-.brand p{color:var(--gray);font-size:0.95rem}
-.badges{display:flex;justify-content:center;gap:20px;margin:16px 0 24px;flex-wrap:wrap}
-.badge{font-size:0.82rem;color:#4a5568;display:flex;align-items:center;gap:4px}
-form{display:flex;flex-direction:column;gap:14px}
-.field label{display:block;font-weight:600;color:#2d3748;margin-bottom:4px;font-size:0.88rem}
-.field input,.field select{width:100%;padding:12px 14px;border:2px solid #e2e8f0;border-radius:8px;font-size:1rem;transition:border-color 0.2s}
-.field input:focus,.field select:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 3px rgba(204,0,0,0.1)}
-.btn{background:var(--red);color:#fff;border:none;padding:14px;font-size:1.05rem;font-weight:700;border-radius:8px;cursor:pointer;width:100%;transition:all 0.2s;letter-spacing:0.3px}
-.btn:hover{background:#a50000;transform:translateY(-1px);box-shadow:0 8px 20px rgba(204,0,0,0.3)}
-.btn:disabled{opacity:0.6;cursor:wait;transform:none;box-shadow:none}
-.fact-box{background:#fff5f5;padding:12px 16px;border-radius:8px;border-left:3px solid var(--red);font-size:0.85rem;color:#742a2a;margin-top:16px;transition:opacity 0.3s}
+:root{
+  --accent:#CC0000;
+  --ember:#F26522;
+  --bg:#0a0a0a;
+  --surface:#141414;
+  --surface-2:#1c1c1c;
+  --text-white:#f5f5f5;
+  --text-body:rgba(245,245,245,0.72);
+  --text-muted:rgba(245,245,245,0.5);
+  --border:rgba(255,255,255,0.08);
+  --border-strong:rgba(255,255,255,0.15);
+  --green:#00E676;
+  --font-display:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+html,body{background:var(--bg);color:var(--text-white)}
+body{
+  font-family:var(--font-display);
+  min-height:100vh;
+  padding:32px 16px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(ellipse 800px 600px at 70% -10%, rgba(204,0,0,0.07) 0%, rgba(10,10,10,0) 55%),
+    radial-gradient(ellipse 600px 500px at -10% 110%, rgba(242,101,34,0.05) 0%, rgba(10,10,10,0) 50%),
+    var(--bg);
+}
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:18px;
+  box-shadow:0 25px 80px rgba(0,0,0,0.6);
+  max-width:680px;
+  width:100%;
+  padding:40px 32px;
+  position:relative;
+  overflow:hidden;
+}
+.card::before{
+  content:'';
+  position:absolute;
+  top:0;left:0;right:0;
+  height:3px;
+  background:linear-gradient(90deg,var(--accent) 0%,var(--ember) 100%);
+}
+.brand-mark{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:14px}
+.brand-mark img{width:32px;height:32px;display:block}
+.brand-mark span{font-family:var(--font-display);font-size:13px;font-weight:800;letter-spacing:0.14em;color:var(--text-white)}
+.label{font-family:var(--font-mono);font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:8px;margin-bottom:14px}
+.label-row{text-align:center;margin-bottom:6px}
+.label-row .label{justify-content:center}
+.label .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:pulse 2s ease-in-out infinite;display:inline-block}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.6;transform:scale(0.85)}}
+.audit-title{font-family:var(--font-display);font-size:clamp(1.55rem,3.4vw,1.95rem);font-weight:700;color:var(--text-white);line-height:1.2;margin-bottom:10px;text-align:center;letter-spacing:-0.01em}
+.audit-sub{color:var(--text-body);font-size:15px;line-height:1.65;max-width:560px;margin:0 auto;text-align:center}
+.badges{display:flex;flex-wrap:wrap;justify-content:center;gap:18px;margin:22px 0 30px;color:var(--text-muted);font-size:13px}
+.badge{display:inline-flex;align-items:center;gap:6px}
+form{display:flex;flex-direction:column;gap:16px}
+.field label{display:block;font-family:var(--font-mono);font-weight:600;color:var(--text-muted);margin-bottom:7px;font-size:11px;letter-spacing:0.12em;text-transform:uppercase}
+.field input,.field select{
+  width:100%;padding:14px 16px;
+  background:rgba(0,0,0,0.35);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--text-white);
+  font-family:var(--font-display);
+  font-size:15px;
+  transition:border-color .2s ease,background .2s ease,box-shadow .2s ease;
+  -webkit-font-smoothing:antialiased;
+}
+.field input::placeholder{color:rgba(245,245,245,0.28)}
+.field input:focus,.field select:focus{
+  outline:none;
+  border-color:var(--accent);
+  background:rgba(0,0,0,0.55);
+  box-shadow:0 0 0 3px rgba(204,0,0,0.18);
+}
+.field select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='%23f5f5f5' opacity='0.6'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;background-size:20px;padding-right:42px;cursor:pointer}
+.field select option{background:var(--surface);color:var(--text-white)}
+.btn{
+  background:var(--accent);
+  color:#fff;
+  border:none;
+  padding:15px 28px;
+  font-size:15px;
+  font-weight:600;
+  font-family:var(--font-display);
+  border-radius:10px;
+  cursor:pointer;
+  width:100%;
+  transition:all .2s ease;
+  letter-spacing:0.01em;
+}
+.btn:hover{background:#a30000;transform:translateY(-1px);box-shadow:0 12px 28px rgba(204,0,0,0.35)}
+.btn:disabled{opacity:0.55;cursor:wait;transform:none;box-shadow:none}
+.fact-box{
+  background:rgba(204,0,0,0.06);
+  padding:13px 16px;
+  border-radius:10px;
+  border-left:3px solid var(--accent);
+  font-size:13px;
+  color:var(--text-body);
+  margin-top:16px;
+  transition:opacity .3s ease;
+}
 .hidden{display:none!important}
 
 /* Progress */
-.progress{margin:24px 0}
-.bar-wrap{background:#e2e8f0;border-radius:10px;height:16px;position:relative;overflow:hidden;box-shadow:inset 0 2px 4px rgba(0,0,0,0.06)}
-.bar{background:linear-gradient(90deg,var(--red),#ff6b6b,var(--red));background-size:200% 100%;height:100%;border-radius:10px;width:0%;transition:width 0.5s ease;animation:shimmer 2s linear infinite}
+.progress{margin:20px 0}
+.bar-wrap{background:rgba(255,255,255,0.06);border-radius:999px;height:14px;position:relative;overflow:hidden}
+.bar{background:linear-gradient(90deg,var(--accent),var(--ember),var(--accent));background-size:200% 100%;height:100%;border-radius:999px;width:0%;transition:width .5s ease;animation:shimmer 2s linear infinite}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.bar-pct{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:0.72rem;font-weight:700;color:var(--dark)}
-.step-box{background:var(--light);padding:14px 16px;border-radius:8px;margin-top:12px;border-left:3px solid var(--red)}
-.step-title{font-weight:600;color:var(--dark);font-size:0.95rem}
-.step-desc{color:var(--gray);font-size:0.82rem;margin-top:2px}
+.bar-pct{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:10px;font-weight:700;color:var(--text-white);font-family:var(--font-mono);letter-spacing:0.04em}
+.step-box{background:rgba(255,255,255,0.04);border:1px solid var(--border);padding:14px 18px;border-radius:10px;margin-top:14px;border-left:3px solid var(--accent)}
+.step-title{font-weight:600;color:var(--text-white);font-size:15px}
+.step-desc{color:var(--text-muted);font-size:13px;margin-top:3px}
 
 /* Results */
-.results{margin-top:24px}
-.scores{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:16px 0}
+.overall{
+  text-align:center;
+  padding:32px 24px;
+  background:linear-gradient(135deg,rgba(204,0,0,0.18) 0%,rgba(242,101,34,0.06) 100%);
+  border:1px solid rgba(204,0,0,0.32);
+  border-radius:14px;
+  margin:20px 0;
+}
+.overall-label{font-family:var(--font-mono);font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:10px}
+.overall-num{font-family:var(--font-display);font-size:4.5rem;font-weight:800;color:var(--accent);line-height:1;font-variant-numeric:tabular-nums}
+.overall-msg{font-size:15px;margin-top:12px;color:var(--text-body);max-width:420px;margin-left:auto;margin-right:auto}
+.scores{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:18px 0}
 @media(max-width:500px){.scores{grid-template-columns:1fr}}
-.score-card{text-align:center;background:var(--light);padding:20px 12px;border-radius:10px;transition:transform 0.2s}
-.score-card:hover{transform:scale(1.02)}
-.score-num{font-size:2.4rem;font-weight:800;color:var(--red)}
-.score-name{font-size:0.82rem;font-weight:600;color:#4a5568;margin-top:2px}
-.score-sub{font-size:0.72rem;color:var(--gray);margin-top:2px}
-.overall{text-align:center;padding:20px;background:linear-gradient(135deg,#1a1a2e,#0f3460);border-radius:12px;margin:16px 0;color:#fff}
-.overall-label{font-size:0.85rem;opacity:0.8;margin-bottom:4px}
-.overall-num{font-size:3.5rem;font-weight:800}
-.overall-msg{font-size:0.95rem;margin-top:6px;opacity:0.9}
-.section{margin:20px 0}
-.section h3{color:var(--dark);font-size:1.05rem;margin-bottom:10px}
-.item{padding:10px 14px;border-radius:8px;margin-bottom:8px;font-size:0.9rem;line-height:1.4}
-.item-good{background:#f0fff4;border-left:3px solid var(--green)}
-.item-bad{background:#fff5f5;border-left:3px solid var(--red)}
-.item-info{background:var(--light);border-left:3px solid #667eea}
-.cta-box{background:linear-gradient(135deg,var(--green),#2f855a);color:#fff;padding:24px;border-radius:12px;text-align:center;margin:24px 0}
-.cta-box h3{font-size:1.2rem;margin-bottom:6px}
-.cta-box p{opacity:0.95;font-size:0.9rem;margin-bottom:12px}
-.cta-btn{background:#fff;color:var(--green);padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;transition:transform 0.2s}
-.cta-btn:hover{transform:scale(1.05)}
-.email-gate{background:var(--light);padding:20px;border-radius:10px;margin:20px 0}
-.email-gate h3{color:var(--dark);margin-bottom:8px;font-size:1rem}
-.email-row{display:flex;gap:8px;margin-top:12px}
+.score-card{
+  text-align:center;
+  background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);
+  padding:22px 14px;
+  border-radius:12px;
+  transition:transform .2s ease,border-color .2s ease;
+}
+.score-card:hover{transform:translateY(-2px);border-color:rgba(204,0,0,0.32)}
+.score-num{font-family:var(--font-display);font-size:2.6rem;font-weight:800;color:var(--accent);line-height:1;font-variant-numeric:tabular-nums}
+.score-name{font-size:14px;font-weight:600;color:var(--text-white);margin-top:5px}
+.score-sub{font-size:11.5px;color:var(--text-muted);margin-top:3px;line-height:1.4}
+.section{margin:26px 0}
+.section h3{
+  color:var(--text-white);
+  font-family:var(--font-display);
+  font-size:17px;
+  font-weight:700;
+  margin-bottom:12px;
+  letter-spacing:-0.005em;
+}
+.item{padding:12px 16px;border-radius:8px;margin-bottom:8px;font-size:14px;line-height:1.55;color:var(--text-body)}
+.item-good{background:rgba(0,230,118,0.06);border-left:3px solid var(--green)}
+.item-bad{background:rgba(204,0,0,0.08);border-left:3px solid var(--accent)}
+.item-info{background:rgba(255,255,255,0.04);border-left:3px solid rgba(255,255,255,0.18)}
+.cta-box{
+  background:linear-gradient(135deg,rgba(204,0,0,0.18) 0%,rgba(242,101,34,0.06) 100%);
+  border:1px solid rgba(204,0,0,0.35);
+  border-left:4px solid var(--accent);
+  color:var(--text-white);
+  padding:28px 26px;
+  border-radius:14px;
+  text-align:center;
+  margin:26px 0;
+}
+.cta-box h3{font-family:var(--font-display);font-size:1.3rem;margin-bottom:10px;font-weight:700;color:var(--text-white);letter-spacing:-0.01em}
+.cta-box p{color:var(--text-body);font-size:14.5px;line-height:1.6;margin-bottom:20px;max-width:480px;margin-left:auto;margin-right:auto}
+.cta-btn{
+  background:var(--accent);
+  color:#fff;
+  padding:14px 30px;
+  border-radius:10px;
+  text-decoration:none;
+  font-weight:600;
+  display:inline-block;
+  font-family:var(--font-display);
+  font-size:15px;
+  transition:all .2s ease;
+}
+.cta-btn:hover{background:#a30000;transform:scale(1.04);box-shadow:0 12px 28px rgba(204,0,0,0.4)}
+.email-gate{
+  background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);
+  padding:24px;
+  border-radius:12px;
+  margin:24px 0;
+}
+.email-gate h3{color:var(--text-white);margin-bottom:6px;font-size:15px;font-weight:600}
+.email-gate p{color:var(--text-muted);font-size:13px;margin-bottom:0}
+.email-row{display:flex;gap:10px;margin-top:14px}
 @media(max-width:500px){.email-row{flex-direction:column}.email-row .btn{width:100%}}
-.email-row input{flex:1;padding:11px 14px;border:2px solid #e2e8f0;border-radius:8px;font-size:0.95rem}
-.email-row input:focus{outline:none;border-color:var(--red)}
-.email-row .btn{width:auto;padding:11px 20px;font-size:0.95rem}
-.success-msg{text-align:center;padding:16px;color:var(--green);font-weight:600}
-.footer{text-align:center;color:rgba(255,255,255,0.7);margin-top:24px;font-size:0.82rem}
-.footer a{color:#fff;font-weight:600;text-decoration:none}
+.email-row input{
+  flex:1;
+  padding:13px 16px;
+  background:rgba(0,0,0,0.35);
+  border:1px solid var(--border);
+  border-radius:10px;
+  color:var(--text-white);
+  font-size:14px;
+  font-family:var(--font-display);
+}
+.email-row input::placeholder{color:rgba(245,245,245,0.28)}
+.email-row input:focus{outline:none;border-color:var(--accent);background:rgba(0,0,0,0.55);box-shadow:0 0 0 3px rgba(204,0,0,0.18)}
+.email-row .btn{width:auto;padding:13px 22px;font-size:14px}
+.success-msg{text-align:center;padding:20px;color:var(--green);font-weight:600;font-size:14.5px}
+.new-audit-btn{
+  background:transparent;
+  border:1px solid var(--border-strong);
+  color:var(--text-body);
+  width:auto;
+  padding:12px 28px;
+  font-size:14px;
+}
+.new-audit-btn:hover{background:rgba(255,255,255,0.05);border-color:var(--text-muted);color:var(--text-white);transform:none;box-shadow:none}
+.footer{
+  text-align:center;
+  margin-top:32px;
+  margin-bottom:8px;
+  font-size:13px;
+  color:var(--text-muted);
+  line-height:1.7;
+  max-width:600px;
+}
+.footer-brand{color:var(--text-white);font-weight:600;letter-spacing:0.06em;font-size:12px;text-transform:uppercase;font-family:var(--font-mono)}
+.footer-nap{margin-top:6px}
+.footer-nap a{color:var(--accent);text-decoration:none;font-weight:600}
+.footer-nap a:hover{text-decoration:underline}
+.footer-meta{margin-top:8px;font-size:12px;color:var(--text-muted)}
+.footer-meta a{color:var(--text-muted);text-decoration:underline;text-decoration-color:rgba(255,255,255,0.2)}
+.footer-meta a:hover{color:var(--text-body)}
 </style>
 </head>
 <body>
 
 <div class="card" id="formCard">
-  <div class="brand">
-    <h1>806 GROWTH</h1>
-    <h2>Free Business Visibility Audit</h2>
-    <p>SEO + Technical + AI Visibility + Social in 10 seconds</p>
+  <div class="brand-mark">
+    <img src="https://806growth.com/assets/icon-806.png" alt="806 Growth" loading="lazy">
+    <span>806 GROWTH</span>
   </div>
+  <div class="label-row"><div class="label"><span class="dot"></span> FREE BUSINESS VISIBILITY AUDIT</div></div>
+  <h1 class="audit-title">See where you stand in 10 seconds.</h1>
+  <p class="audit-sub">Real scores for SEO, technical health, AI visibility, and social presence &mdash; built for service businesses in the 806 and across West Texas.</p>
   <div class="badges">
     <span class="badge">⚡ Instant results</span>
     <span class="badge">🆓 100% free</span>
@@ -449,10 +659,11 @@ form{display:flex;flex-direction:column;gap:14px}
 </div>
 
 <div class="card hidden" id="resultsCard">
-  <div class="brand">
-    <h1>806 GROWTH</h1>
-    <h2>Your Visibility Report</h2>
+  <div class="brand-mark">
+    <img src="https://806growth.com/assets/icon-806.png" alt="806 Growth" loading="lazy">
+    <span>806 GROWTH</span>
   </div>
+  <div class="label-row"><div class="label"><span class="dot"></span> YOUR VISIBILITY REPORT</div></div>
 
   <div class="overall">
     <div class="overall-label">Overall Visibility Score</div>
@@ -499,27 +710,39 @@ form{display:flex;flex-direction:column;gap:14px}
   </div>
 
   <div class="cta-box">
-    <h3>🚀 Get 3x More Customer Calls in 30 Days</h3>
-    <p>Let's discuss how to fix these issues and get you found by more customers</p>
-    <a href="https://806growth.com" class="cta-btn" target="_blank"id="ctaBtn" onclick="posthog.capture('cta_clicked', {source: 'results-page'})">Get My Custom 30-Day Growth Plan →</a>
+    <h3>🚀 Get 3x more customer calls in 30 days.</h3>
+    <p>Let's plug the leaks. 15-minute call, no pitch, just numbers — and the exact system that gets you found, called, and booked.</p>
+    <a href="https://806growth.com/pricing.html?plan=growth" class="cta-btn" target="_blank" id="ctaBtn" onclick="posthog.capture('cta_clicked', {source: 'results-page'})">Get My Custom 30-Day Growth Plan &rarr;</a>
   </div>
 
   <div class="email-gate" id="emailGate">
-    <h3>📧 Want Step-by-Step Fix Instructions?</h3>
-    <p style="color:#718096;font-size:0.88rem">Get detailed recommendations emailed to you</p>
+    <h3>📧 Want step-by-step fix instructions?</h3>
+    <p>Get detailed recommendations emailed to you — including the issues we hid behind the lock above.</p>
     <div class="email-row">
       <input type="email" id="emailInput" placeholder="your@email.com">
       <button class="btn" id="emailBtn">Send Report</button>
     </div>
   </div>
 
-  <div style="text-align:center;margin-top:20px">
-    <button class="btn" id="newAuditBtn" style="background:#0B0B0B;width:auto;padding:12px 32px">← Start New Audit</button>
+  <div style="text-align:center;margin-top:24px">
+    <button class="btn new-audit-btn" id="newAuditBtn">&larr; Start New Audit</button>
   </div>
 </div>
 
 <div class="footer">
-  Powered by <a href="https://806growth.com">806 Growth</a> • AI-Powered Marketing for West Texas
+  <div class="footer-brand">806 Growth &mdash; Lubbock, TX</div>
+  <div class="footer-nap">
+    <a href="tel:+18064513133">(806) 451-3133</a>
+    &nbsp;&middot;&nbsp;
+    <a href="mailto:contact@806growth.com">contact@806growth.com</a>
+  </div>
+  <div class="footer-meta">
+    <a href="https://806growth.com" target="_blank">806growth.com</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://806growth.com/privacy.html" target="_blank">Privacy</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://806growth.com/terms.html" target="_blank">Terms</a>
+  </div>
 </div>
 
 <script>
@@ -701,9 +924,14 @@ document.getElementById('emailBtn').addEventListener('click',async()=>{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
+        brand:'806 Growth',
+        source_form:'seo_audit_email_unlock',
+        first_name:'SEO Audit Lead',
         email,
         source:'email-gate',
-        tags:'audit-lead,source-visibility-tool,email-unlocked'
+        tags:['806 Growth','Web Lead','SEO Audit','audit-lead','source-visibility-tool','email-unlocked'].join(','),
+        timestamp:new Date().toISOString(),
+        page_url:'https://audit.806growth.com/'
       })
     });
     // Unlock full recommendations
