@@ -228,6 +228,196 @@ function buildExecutiveSummary(businessName, score, gradeLabel, proof, businessT
   return businessName + ' scored ' + score + '/100 — ' + gradeLabel.toLowerCase() + '. ' + strengthPart + ' ' + gapPart + ' The detailed fixes below are ordered by impact.';
 }
 
+// ─── Full pre-rendered email body ────────────────────────────────────────
+// Builds the COMPLETE body-only HTML for the SEO Audit results email with
+// every value interpolated server-side. GHL's email step then just outputs
+// {{inboundWebhookRequest.full_email_html}} — a single merge field, so GHL
+// never has to substitute (or escape) per-field HTML. This sidesteps the
+// entire class of GHL-templating bugs (blank body, escaped HTML, test-mode
+// non-substitution). Unsubscribe is a mailto (no GHL nested-merge needed).
+function buildFullEmailHtml(d) {
+  const e = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const LOGO = 'https://assets.cdn.filesafe.space/jDoRsNEPg0qtXUYNouR3/media/6a02e3d460a7a52fdc278da9.png';
+  const monthly = (d.estimatedMonthlyLoss || 0).toLocaleString('en-US');
+  const annual  = (d.estimatedAnnualLoss  || 0).toLocaleString('en-US');
+  const revenueBlock = (d.estimatedMonthlyLoss > 0) ? `
+        <p style="margin:24px 0 12px;font-size:17px;font-weight:700;color:#0a0a0a">What this is costing you:</p>
+        <p style="margin:0 0 24px">
+          Based on your score and business type, sites in your range typically miss
+          <strong style="color:#CC0000">~$${monthly}/month</strong>
+          (about <strong style="color:#CC0000">$${annual}/year</strong>)
+          in leads that found a competitor with stronger SEO, AI visibility, or local signals.
+          Fixing the issues below directly closes that gap.
+        </p>` : '';
+
+  return `<div style="display:none;font-size:1px;color:#f7f7f5;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">
+  Your audit scored ${e(d.overallScore)}/100 — ${e(d.scoreLabel)}. The full report and top fixes are below.
+</div>
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f7f5;padding:24px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#2a2a2a;line-height:1.6">
+  <tr><td align="center">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #ececec;box-shadow:0 2px 8px rgba(0,0,0,0.04)">
+
+      <tr>
+        <td style="background:#0a0a0a;padding:22px 32px" align="center">
+          <a href="https://806growth.com" target="_blank" style="text-decoration:none;display:inline-block">
+            <img src="${LOGO}" alt="806 Growth" width="180" style="display:block;border:0;outline:0;width:180px;max-width:180px;height:auto;margin:0 auto">
+          </a>
+        </td>
+      </tr>
+      <tr><td style="height:4px;background:#CC0000;font-size:0;line-height:0">&nbsp;</td></tr>
+
+      <tr><td style="padding:36px 32px;font-size:16px;line-height:1.65;color:#2a2a2a">
+
+        <p style="margin:0 0 6px;font-family:'JetBrains Mono','Courier New',monospace;font-size:11px;font-weight:600;color:#CC0000;letter-spacing:0.14em;text-transform:uppercase">
+          Free Business Visibility Audit
+        </p>
+        <h1 style="font-size:26px;font-weight:700;color:#0a0a0a;margin:0 0 16px;line-height:1.25">
+          Your audit results, ${e(d.businessName)}.
+        </h1>
+        <p style="margin:0 0 24px;font-size:16px;line-height:1.65">
+          Just ran a fresh scan on <strong style="color:#0a0a0a">${e(d.website)}</strong>. Below is the <strong style="color:#0a0a0a">full report</strong> — including the detailed implementation steps for each fix that aren't shown on the audit page.
+        </p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fff5f5;border:1px solid #ffd4d4;border-left:4px solid #CC0000;border-radius:8px;margin:0 0 24px">
+          <tr><td style="padding:28px 28px" align="center">
+            <p style="margin:0 0 6px;font-family:'JetBrains Mono','Courier New',monospace;font-size:11px;font-weight:600;color:#CC0000;letter-spacing:0.14em;text-transform:uppercase">Overall Visibility Score</p>
+            <p style="margin:0;font-size:56px;font-weight:800;color:#CC0000;line-height:1.05">
+              ${e(d.overallScore)}<span style="font-size:22px;font-weight:600;color:#666">/100</span>
+            </p>
+            <p style="margin:8px 0 0;font-size:15px;color:#0a0a0a;font-weight:600">
+              Grade ${e(d.grade)} &middot; ${e(d.scoreLabel)}
+            </p>
+            <p style="margin:8px 0 0;font-size:13px;color:#666">
+              Industry average for ${e(d.businessType)}: <strong>${e(d.benchmarkScore)}/100</strong> &mdash; you're ${e(d.benchmarkLabel)}.
+            </p>
+          </td></tr>
+        </table>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 24px">
+          <tr><td style="border-left:3px solid #CC0000;padding:8px 0 8px 20px">
+            <p style="margin:0 0 6px;font-family:'JetBrains Mono','Courier New',monospace;font-size:10.5px;font-weight:700;color:#CC0000;letter-spacing:0.14em;text-transform:uppercase">Executive Summary</p>
+            <p style="margin:0;font-size:15px;line-height:1.65;color:#2a2a2a">
+              ${e(d.executiveSummary)}
+            </p>
+          </td></tr>
+        </table>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 24px">
+          <tr>
+            <td width="50%" valign="top" style="padding-right:6px">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f7f5;border:1px solid #ececec;border-radius:8px">
+                <tr><td style="padding:18px 16px" align="center">
+                  <p style="margin:0;font-size:32px;font-weight:800;color:#CC0000;line-height:1">${e(d.seoScore)}</p>
+                  <p style="margin:6px 0 0;font-size:13px;font-weight:600;color:#0a0a0a">SEO</p>
+                  <p style="margin:2px 0 0;font-size:11px;color:#666">Title, meta, headings, mobile</p>
+                </td></tr>
+              </table>
+            </td>
+            <td width="50%" valign="top" style="padding-left:6px">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f7f5;border:1px solid #ececec;border-radius:8px">
+                <tr><td style="padding:18px 16px" align="center">
+                  <p style="margin:0;font-size:32px;font-weight:800;color:#CC0000;line-height:1">${e(d.technicalScore)}</p>
+                  <p style="margin:6px 0 0;font-size:13px;font-weight:600;color:#0a0a0a">Technical</p>
+                  <p style="margin:2px 0 0;font-size:11px;color:#666">Speed, robots, sitemap, favicon</p>
+                </td></tr>
+              </table>
+            </td>
+          </tr>
+          <tr><td colspan="2" style="height:12px;font-size:0;line-height:0">&nbsp;</td></tr>
+          <tr>
+            <td width="50%" valign="top" style="padding-right:6px">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f7f5;border:1px solid #ececec;border-radius:8px">
+                <tr><td style="padding:18px 16px" align="center">
+                  <p style="margin:0;font-size:32px;font-weight:800;color:#CC0000;line-height:1">${e(d.aiScore)}</p>
+                  <p style="margin:6px 0 0;font-size:13px;font-weight:600;color:#0a0a0a">AI Visibility</p>
+                  <p style="margin:2px 0 0;font-size:11px;color:#666">Schema, FAQ, structured data</p>
+                </td></tr>
+              </table>
+            </td>
+            <td width="50%" valign="top" style="padding-left:6px">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f7f5;border:1px solid #ececec;border-radius:8px">
+                <tr><td style="padding:18px 16px" align="center">
+                  <p style="margin:0;font-size:32px;font-weight:800;color:#CC0000;line-height:1">${e(d.socialScore)}</p>
+                  <p style="margin:6px 0 0;font-size:13px;font-weight:600;color:#0a0a0a">Social</p>
+                  <p style="margin:2px 0 0;font-size:11px;color:#666">Facebook, Instagram, LinkedIn</p>
+                </td></tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+${revenueBlock}
+        <p style="margin:32px 0 14px;font-size:18px;font-weight:700;color:#0a0a0a">Your top fixes — ranked by impact:</p>
+        <p style="margin:0 0 18px;font-size:14px;color:#666;line-height:1.6">
+          For each fix below: <strong>what to do</strong> (concrete steps), <strong>why it matters</strong> (the business case), <strong>time</strong> (effort estimate), and <strong>expected impact</strong>. Implement in order — they're sorted by ROI.
+        </p>
+        ${d.recommendationsDetailedHtml || ''}
+
+        <p style="margin:32px 0 12px;font-size:18px;font-weight:700;color:#0a0a0a">Everything we checked:</p>
+        <p style="margin:0 0 14px;font-size:14px;color:#666;line-height:1.6">
+          Complete record of every audit check we ran on your site. Use this to confirm what's working and to validate any future fixes.
+        </p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #ececec;border-radius:8px;overflow:hidden;margin:0 0 24px;background:#fafafa">
+          ${d.proofFullHtml || ''}
+        </table>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:24px 0">
+          <tr><td style="border-left:3px solid #CC0000;padding:8px 0 8px 20px">
+            <p style="margin:0;font-size:15px;line-height:1.6;color:#2a2a2a;font-style:italic">
+              "Score was 47 when we started. Three weeks later, 78. Calls went from 2-3 a day to 8-10. We didn't change anything about how we do the work — we just got found."
+            </p>
+            <p style="margin:8px 0 0;font-size:12px;color:#666;font-weight:500">— Local HVAC operator · 30-day result · Lubbock, TX</p>
+          </td></tr>
+        </table>
+
+        <p style="margin:24px 0 16px;font-size:16px">
+          Want help fixing these? Book a free 15-minute strategy call. No pitch — just walk through the specific changes that would move <strong style="color:#0a0a0a">${e(d.businessName)}</strong> from ${e(d.overallScore)}/100 to 85+ in 30 days.
+        </p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0">
+          <tr><td style="background:#0a0a0a;border:2px solid #CC0000;border-radius:8px" align="center">
+            <a href="https://806growth.com/contact.html" target="_blank" style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:700;color:#CC0000;text-decoration:none;letter-spacing:0.02em">
+              <span style="color:#CC0000">Book a 15-minute call &rarr;</span>
+            </a>
+          </td></tr>
+        </table>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:32px;border-top:1px solid #ececec;padding-top:24px">
+          <tr><td>
+            <p style="margin:0 0 4px;font-weight:600;color:#0a0a0a;font-size:15px">Brandon R.</p>
+            <p style="margin:0 0 4px;color:#666;font-size:14px">Founder, 806 Growth</p>
+            <p style="margin:0;color:#666;font-size:14px">
+              <a href="tel:+18064513133" style="color:#CC0000;text-decoration:none"><span style="color:#CC0000">(806) 451-3133</span></a>
+              <span style="color:#bbb">&nbsp;·&nbsp;</span>
+              <a href="mailto:contact@806growth.com" style="color:#CC0000;text-decoration:none"><span style="color:#CC0000">contact@806growth.com</span></a>
+            </p>
+          </td></tr>
+        </table>
+
+      </td></tr>
+
+      <tr><td style="background:#0a0a0a;padding:24px 32px;color:#a0a0a0;line-height:1.6" align="center">
+        <p style="margin:0 0 8px;color:#ffffff;font-weight:600;font-size:14px">806 Growth — Lubbock, TX</p>
+        <p style="margin:0 0 8px;font-size:13px">
+          <a href="tel:+18064513133" style="color:#CC0000;text-decoration:none;font-weight:600"><span style="color:#CC0000">(806) 451-3133</span></a>
+          <span style="color:#555">&nbsp;·&nbsp;</span>
+          <a href="mailto:contact@806growth.com" style="color:#CC0000;text-decoration:none;font-weight:600"><span style="color:#CC0000">contact@806growth.com</span></a>
+        </p>
+        <p style="margin:0;color:#999;font-size:12px">
+          <a href="mailto:contact@806growth.com?subject=Unsubscribe" style="color:#999;text-decoration:underline"><span style="color:#999">Unsubscribe</span></a>
+          <span>&nbsp;·&nbsp;</span>
+          <a href="https://806growth.com/privacy.html" style="color:#999;text-decoration:underline"><span style="color:#999">Privacy</span></a>
+          <span>&nbsp;·&nbsp;</span>
+          <a href="https://806growth.com/terms.html" style="color:#999;text-decoration:underline"><span style="color:#999">Terms</span></a>
+        </p>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>`;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -320,6 +510,29 @@ export default {
             estimatedAnnualLoss = estimatedMonthlyLoss * 12;
           }
 
+          // Pre-render the ENTIRE email body server-side. GHL email step just
+          // outputs {{inboundWebhookRequest.full_email_html}} — one field, so
+          // GHL never escapes/strips per-field HTML. Bulletproof.
+          const fullEmailHtml = buildFullEmailHtml({
+            businessName:                body.businessName,
+            website:                     body.url,
+            businessType:                body.businessType,
+            overallScore:                results.composite_score,
+            grade:                       grade,
+            scoreLabel:                  gradeLabel,
+            benchmarkScore:              benchmarkScore,
+            benchmarkLabel:              benchmarkLabel,
+            executiveSummary:            executiveSummary,
+            seoScore:                    results.seo_score,
+            technicalScore:              results.technical_score,
+            aiScore:                     results.ai_score,
+            socialScore:                 results.social_score,
+            estimatedMonthlyLoss:        estimatedMonthlyLoss,
+            estimatedAnnualLoss:         estimatedAnnualLoss,
+            recommendationsDetailedHtml: recommendationsDetailedHtml,
+            proofFullHtml:               proofFullHtml,
+          });
+
           // Tag array includes BOTH the standard site pattern (806 Growth / Web Lead /
           // SEO Audit — required for Web Lead Internal Alerts + Tag-Added nurture
           // workflows to fire) AND the legacy custom tags (audit-lead /
@@ -361,6 +574,7 @@ export default {
               top_recommendations_text:    recommendationsText,
               recommendations_detailed_html: recommendationsDetailedHtml,
               proof_full_html:             proofFullHtml,
+              full_email_html:             fullEmailHtml,
               industry_benchmark_score:    benchmarkScore,
               industry_benchmark_label:    benchmarkLabel,
               estimated_monthly_loss:      estimatedMonthlyLoss,
