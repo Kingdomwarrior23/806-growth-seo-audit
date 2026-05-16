@@ -983,9 +983,9 @@ body{
   height:3px;
   background:linear-gradient(90deg,var(--accent) 0%,var(--ember) 100%);
 }
-.brand-mark{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:14px}
-.brand-mark-icon{width:38px;height:38px;display:block;flex:0 0 auto;border-radius:10px;box-shadow:0 4px 14px rgba(204,0,0,0.35)}
-.brand-mark span{font-family:var(--font-display);font-size:13px;font-weight:800;letter-spacing:0.14em;color:var(--text-white)}
+.brand-mark{display:flex;align-items:center;justify-content:center;margin-bottom:18px}
+.brand-mark-logo{display:block;width:auto;height:44px;max-width:220px;object-fit:contain}
+@media(max-width:520px){.brand-mark-logo{height:38px}}
 .report-header{
   margin:18px 0 4px;
   padding:18px 22px;
@@ -1226,11 +1226,7 @@ form{display:flex;flex-direction:column;gap:16px}
 
 <div class="card" id="formCard">
   <div class="brand-mark">
-    <svg class="brand-mark-icon" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect width="80" height="80" rx="16" fill="#CC0000"/>
-      <text x="40" y="52" font-family="Poppins, system-ui, sans-serif" font-size="26" font-weight="800" text-anchor="middle" fill="#ffffff" letter-spacing="-1.5">806</text>
-    </svg>
-    <span>806 GROWTH</span>
+    <img class="brand-mark-logo" src="https://assets.cdn.filesafe.space/jDoRsNEPg0qtXUYNouR3/media/6a02e3d460a7a52fdc278da9.png" alt="806 Growth" />
   </div>
   <div class="label-row"><div class="label"><span class="dot"></span> FREE BUSINESS VISIBILITY AUDIT</div></div>
   <h1 class="audit-title">See where you stand in 10 seconds.</h1>
@@ -1306,11 +1302,7 @@ form{display:flex;flex-direction:column;gap:16px}
 
 <div class="card hidden" id="resultsCard">
   <div class="brand-mark">
-    <svg class="brand-mark-icon" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect width="80" height="80" rx="16" fill="#CC0000"/>
-      <text x="40" y="52" font-family="Poppins, system-ui, sans-serif" font-size="26" font-weight="800" text-anchor="middle" fill="#ffffff" letter-spacing="-1.5">806</text>
-    </svg>
-    <span>806 GROWTH</span>
+    <img class="brand-mark-logo" src="https://assets.cdn.filesafe.space/jDoRsNEPg0qtXUYNouR3/media/6a02e3d460a7a52fdc278da9.png" alt="806 Growth" />
   </div>
   <div class="label-row"><div class="label"><span class="dot"></span> YOUR VISIBILITY REPORT</div></div>
 
